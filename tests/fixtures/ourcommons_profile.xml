@@ -1,0 +1,34 @@
+<Profile xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+  <!-- Copy of http://www.ourcommons.ca/Members/en/jagsharan-singh-mahal(123455)/xml as retrieved 2026-09-28. -->
+  <MemberOfParliamentRole>
+    <PersonId>123455</PersonId>
+    <PersonShortHonorific />
+    <PersonOfficialFirstName>Jagsharan Singh</PersonOfficialFirstName>
+    <PersonOfficialLastName>Mahal</PersonOfficialLastName>
+    <ConstituencyName>Edmonton Southeast</ConstituencyName>
+    <ConstituencyProvinceTerritoryName>Alberta</ConstituencyProvinceTerritoryName>
+    <CaucusShortName>Conservative</CaucusShortName>
+    <FromDateTime>2025-04-28T00:00:00</FromDateTime>
+    <ToDateTime xsi:nil="true" />
+  </MemberOfParliamentRole>
+  <CaucusMemberRoles>
+    <CaucusMemberRole>
+      <CaucusShortName>Conservative</CaucusShortName>
+      <FromDateTime>2025-04-28T00:00:00</FromDateTime>
+      <ToDateTime xsi:nil="true" />
+      <ParliamentNumber>45</ParliamentNumber>
+    </CaucusMemberRole>
+  </CaucusMemberRoles>
+  <ParliamentaryPositionRoles />
+  <CommitteeMemberRoles>
+    <CommitteeMemberRole>
+      <ParliamentNumber>45</ParliamentNumber>
+      <SessionNumber>1</SessionNumber>
+      <AffiliationRoleName>Member</AffiliationRoleName>
+      <CommitteeName>Science and Research</CommitteeName>
+      <FromDateTime>2025-06-13T12:03:00</FromDateTime>
+      <ToDateTime xsi:nil="true" />
+    </CommitteeMemberRole>
+  </CommitteeMemberRoles>
+  <ParliamentaryAssociationsandInterparliamentaryGroupRoles />
+</Profile>
