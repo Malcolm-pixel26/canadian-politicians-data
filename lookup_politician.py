@@ -15,7 +15,8 @@ Three modes:
    Senate's website, for senators) instead of the cache. Searching
    everyone at every level of government takes only a few requests
    (Represent's bulk download), so --category and --place are optional
-   ways to narrow the results rather than requirements.
+   ways to narrow the results rather than requirements. Nunavut's MLAs
+   take a request each to read, so they're only in the cached lookup.
 
        python3 lookup_politician.py "Jane Doe" --live
        python3 lookup_politician.py "Jane Doe" --live --category federal
@@ -25,7 +26,8 @@ Three modes:
    latitude,longitude (e.g. right-click your address in Google Maps).
    Lists your MP, MPP/MLA/MNA, mayor and councillor(s) in one request,
    plus your province's senators from master.xlsx if you've run
-   scrape_federal.py.
+   scrape_federal.py. (Represent has no boundaries for Nunavut's
+   constituencies, so a Nunavut address can't be matched to its MLA.)
 
        python3 lookup_politician.py --postal-code "K1A 0A6"
        python3 lookup_politician.py --point 45.4236,-75.7009
@@ -43,15 +45,17 @@ enrichment (committees, first elected date) live, since that's cheap
 for a single person (skip with --no-enrich).
 
 This only pulls from public sources (Represent, OpenParliament, the
-House of Commons, the Senate) that already publish these people's
-official, public-facing legislative contact info -- it does not search
-social media, news, or anything about their personal/private life.
+House of Commons, the Senate, the Legislative Assembly of Nunavut) that
+already publish these people's official, public-facing legislative
+contact info -- it does not search social media, news, or anything
+about their personal/private life.
 """
 import argparse
 import os
 import string
 import sys
 
+import nunavut
 import senate
 from represent_common import (
     FEDERAL_ENRICHMENT_FIELDS,
@@ -335,6 +339,10 @@ def lookup_location(args):
         return 1
 
     print_location_results(rows, where, ambiguous_offices(rows) if args.postal_code else frozenset())
+    if province == nunavut.PROVINCE and args.category in (None, "provincial_territorial"):
+        print("\nRepresent has no boundaries for Nunavut's constituencies, so this can't tell which MLA "
+              "is yours.\nThey're all in provincial_territorial/nunavut-legislature.xlsx (from "
+              "scrape_provincial_territorial.py),\nor search by name: lookup_politician.py \"NAME\" --place Nunavut")
     if not args.no_enrich:
         enrich_and_print_federal(rows)
     return 0

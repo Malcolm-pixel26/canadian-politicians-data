@@ -3,8 +3,8 @@ Test helpers: a fake network (urllib.request.urlopen), a fake clock
 (time.sleep / time.monotonic) so throttling and backoff are measurable
 and instant, and routes that serve the Represent / OpenParliament /
 House of Commons fixtures (trimmed copies of live responses) and the
-Senate fixtures (rebuilt from the live pages' content -- see the note at
-the top of each).
+Senate / Legislative Assembly of Nunavut fixtures (rebuilt from the live
+pages' content -- see the note at the top of each).
 """
 import contextlib
 import io
@@ -30,6 +30,7 @@ import represent_common as rc  # noqa: E402
 REPRESENT = "https://represent.opennorth.ca"
 OPENPARLIAMENT = "https://api.openparliament.ca"
 SENATE = "https://sencanada.ca/umbraco/surface/SenatorsAjax/GetSenators"
+NUNAVUT = "https://www.assembly.nu.ca"
 
 
 def load_fixture(name):
@@ -268,6 +269,75 @@ def senate_list_without(*names):
         start = page.index(f">{name}</a>")
         page = page[:page.rindex("<tr>", 0, start)] + page[page.index("</tr>", start) + len("</tr>"):]
     return page
+
+
+def nunavut_member_page(name, constituency, legislative=None, offices=(), duties=(), honourable=False,
+                        biography="was elected in the general election held on October 27, 2025."):
+    """An MLA's page in the other layout the parser reads: plain paragraphs
+    with each section's details on one line, labels inline -- the way the
+    live page's text reads when copied. `legislative` and each of `offices`
+    are the text of one paragraph."""
+    title = f"Honourable {name}" if honourable else name
+    parts = [f"<h1>{escape(title)}</h1>", f"<p>Constituency {escape(constituency)}</p>"]
+    if duties:
+        parts.append("<h3>Duties</h3>" + "".join(f"<p>{escape(d)}</p>" for d in duties))
+    if legislative:
+        parts.append(f"<h3>Legislative Office</h3><p>{legislative}</p>")
+    if offices:
+        parts.append("<h3>Constituency Office</h3>" + "".join(f"<p>{o}</p>" for o in offices))
+    parts.append(f"<p>{escape(name)} {escape(biography)}</p>")
+    return (f"<!DOCTYPE html><html><head><title>{escape(title)} | Nunavut Legislative Assembly</title></head>"
+            f"<body><nav><a href=\"/members/mla\">Members</a></nav><main>{''.join(parts)}</main></body></html>")
+
+
+# The members in fixtures/nunavut_members.html other than John Main (whose
+# page is fixtures/nunavut_member.html), by node number, plus a page that
+# isn't a member's. Mike's and Pedersen's details are as published in
+# September 2026; Joanasie's constituency office is from Open North's
+# older copy of his page, and his page has no Legislative Office section.
+NUNAVUT_PAGES = {
+    "2669": nunavut_member_page(
+        "David Joanasie", "South Baffin", honourable=True, duties=["Speaker of the Legislative Assembly"],
+        offices=["P.O. Box 156 Cape Dorset, NU X0A 0C0 Phone: (867) 897-8753 "
+                 "Email: <a href=\"mailto:davidjoanasie@southbaffinmla.ca\">Email</a>"]),
+    "6490": nunavut_member_page(
+        "Johnny Mike", "Pangnirtung",
+        legislative="Phone: (867) 975-5135 Fax: (867) 975-5124 Email: jmike@assembly.nu.ca",
+        offices=["P.O. Box 36 Pangnirtung, NU X0A 0R0 Phone: (867) 473-8220 Fax: (867) 473-8227 "
+                 "Email: JohnnyMike@pangnirtungmla.ca"]),
+    "9695": nunavut_member_page(
+        "Fred Pedersen", "Cambridge Bay",
+        legislative="Phone: (867) 975-5127 Fax: (867) 975-5108 Email: fpedersen@assembly.nu.ca",
+        offices=["P.O. Box 1363 Cambridge Bay, NU X0B 0C0 Phone: (867) 983-3777 Fax: (867) 983-3778 "
+                 "Email: fredpedersen@cambridgebaymla.ca"]),
+    "41": "<html><head><title>Visitor Information | Nunavut Legislative Assembly</title></head>"
+          "<body><h1>Visitor Information</h1><p>Tours of the Legislative Assembly run daily.</p></body></html>",
+}
+
+
+class FakeNunavut:
+    """assembly.nu.ca: the members page and members' pages from the
+    fixtures. `pages` ({node number: HTML or exception}) adds or replaces
+    pages; `listing` replaces the members page."""
+
+    def __init__(self, pages=None, listing=None):
+        self.listing = load_fixture("nunavut_members.html") if listing is None else listing
+        self.pages = dict(NUNAVUT_PAGES, **{"6485": load_fixture("nunavut_member.html")})
+        self.pages.update(pages or {})
+
+    def handle(self, url):
+        path = urllib.parse.urlsplit(url).path.rstrip("/")
+        if path == "/members/mla":
+            page = self.listing
+        else:
+            page = self.pages.get(path[len("/node/"):]) if path.startswith("/node/") else None
+        if page is None:
+            return http_error(url, 404)
+        return page if isinstance(page, BaseException) else FakeResponse(page)
+
+    def install(self, web):
+        web.route(NUNAVUT, self.handle)
+        return self
 
 
 class ScraperTestCase(unittest.TestCase):

@@ -5,6 +5,7 @@ import os
 
 from support import (
     FakeFederalSources,
+    FakeNunavut,
     FakeSenate,
     FakeWeb,
     ScraperTestCase,
@@ -123,13 +124,17 @@ class ProvincialAndLocalTests(ScraperTestCase):
     def test_provincial_run(self):
         with FakeWeb() as web:
             sample_represent().install(web)
+            FakeNunavut().install(web)
             self.assertEqual(scrape_provincial_territorial.main([]), 0)
         folder = os.path.join(self.tmp, "provincial_territorial")
         self.assertTrue(os.path.exists(os.path.join(folder, "ontario-legislature.csv")))
+        self.assertTrue(os.path.exists(os.path.join(folder, "nunavut-legislature.csv")))
         self.assertTrue(os.path.exists(os.path.join(folder, "all_provincial_territorial.json")))
-        self.assertIn("Not available from Represent:", self.output.getvalue())
-        self.assertIn("Nunavut", self.output.getvalue())
-        self.assertEqual(len(self.read_sheet(self.master_path, "Provincial_Territorial")), 2)
+        # The sample only has Ontario; Nunavut comes from its own Assembly instead.
+        missing = next(line for line in self.output.getvalue().splitlines() if "Not available from Represent" in line)
+        self.assertIn("Yukon", missing)
+        self.assertNotIn("Nunavut", missing)
+        self.assertEqual(len(self.read_sheet(self.master_path, "Provincial_Territorial")), 2 + 4)
 
     def test_local_province_filter_then_full_run(self):
         with FakeWeb() as web:
@@ -165,6 +170,7 @@ class ProvincialAndLocalTests(ScraperTestCase):
         with FakeWeb() as web:
             sample_represent().install(web)
             FakeSenate().install(web)
+            FakeNunavut().install(web)
             FakeFederalSources().install(web)
             web.route("https://www.ourcommons.ca", lambda url: RuntimeError("boom"))
             exit_code = scrape_all.main([])
@@ -172,5 +178,6 @@ class ProvincialAndLocalTests(ScraperTestCase):
             self.assertEqual(web.count("/representatives/?"), 1)
         self.assertEqual(exit_code, 0)
         self.assertEqual(self.sheet_names(self.master_path), ["Federal", "Provincial_Territorial", "Local", "Changelog"])
-        senators = 8
-        self.assertEqual(len(rc.read_all_master_rows(self.master_path)), len(SAMPLE["representatives"]) + senators)
+        senators, nunavut_mlas = 8, 4
+        self.assertEqual(len(rc.read_all_master_rows(self.master_path)),
+                         len(SAMPLE["representatives"]) + senators + nunavut_mlas)

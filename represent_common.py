@@ -8,8 +8,9 @@ one free API, so we don't need a separate scraper for every
 legislature's website. At the time of writing it publishes 121
 "representative sets" -- the House of Commons, 12 of the 13
 provincial/territorial legislatures (there is no Nunavut set) and 108
-municipal councils -- about 3,800 people in total. The Senate, which
-Represent doesn't cover, comes from its own website via senate.py.
+municipal councils -- about 3,800 people in total. The two gaps are
+filled from the institutions' own websites: the Senate by senate.py and
+Nunavut's MLAs by nunavut.py.
 
 Free tier limit: 60 requests/minute; past that Represent answers with
 HTTP 503. Every request in this project goes through http_get() below,
@@ -1097,6 +1098,10 @@ def write_workbook(path, sheets):
 # unambiguous on both sides. (The last rule is what lets "Bill Dennis"
 # becoming "William Dennis" stay one person; the rare flip side is that a
 # *different* Dennis winning that same seat shows up as a name change.)
+# The URL rule is skipped for legislatures whose member pages belong to
+# the seat, not the person (SEAT_PAGE_SETS): there, whoever wins the
+# seat next inherits the page, and would otherwise be recorded as the
+# previous member changing their name.
 #
 # Columns are read by their header text, not position, so workbooks written
 # by older versions (with fewer columns) load correctly, and columns a new
@@ -1216,6 +1221,12 @@ def _text(value):
     return "" if value is None else str(value)
 
 
+# Legislatures (normalize_name() form) whose member pages are per seat:
+# assembly.nu.ca/node/9695 was Pamela Gross's page until the 2025
+# election and is now Fred Pedersen's -- both MLAs for Cambridge Bay.
+SEAT_PAGE_SETS = {"legislative assembly of nunavut"}
+
+
 def _identity_keys(row):
     """Ways to recognise the same person across runs, most specific first
     (see the Identity note above). None where the row lacks the data."""
@@ -1226,7 +1237,7 @@ def _identity_keys(row):
     district = normalize_name(_text(row.get("district_name")))
     office = normalize_name(_text(row.get("elected_office")))
     return [
-        (set_name, url) if url else None,
+        (set_name, url) if url and set_name not in SEAT_PAGE_SETS else None,
         (set_name, name) if name else None,
         (set_name, district, office, last) if district and last else None,
     ]
