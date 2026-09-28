@@ -26,6 +26,8 @@ pyinstaller --onefile --name politician_scrapers ^
     --hidden-import changes_digest ^
     --hidden-import make_maps ^
     --hidden-import openparliament_enrich ^
+    --hidden-import senate ^
+    --hidden-import nunavut ^
     --hidden-import represent_common ^
     cli_politicians.py
 if errorlevel 1 goto :error
