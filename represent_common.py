@@ -425,18 +425,14 @@ def fetch_all_representatives():
 FetchResult = namedtuple("FetchResult", "sets rows fetched_sets failed_sets")
 
 
-def fetch_rows_for_sets(rep_sets, category=None):
+def fetch_representatives_for_sets(rep_sets):
     """
-    Fetch and flatten every representative in `rep_sets`; returns a
-    FetchResult(sets, rows, fetched_sets, failed_sets), the last two being
-    lists of set names.
+    The raw representative objects of every set in `rep_sets`, as
+    ({set url: [representative, ...]}, [names of sets that failed]).
 
     Many sets -> one bulk download; a few -> one request per set. A set
-    that can't be downloaded is skipped and listed in `failed_sets`
-    instead of aborting the run, and upsert_master() never marks people
-    in a failed set as "removed".
-
-    `category` is stamped on every row; None classifies each set.
+    that can't be downloaded is skipped and listed as failed instead of
+    aborting the run.
     """
     reps_by_url = {}
     if rep_sets and (len(rep_sets) >= BULK_FETCH_MIN_SETS or "all_reps" in _cache):
@@ -468,7 +464,22 @@ def fetch_rows_for_sets(rep_sets, category=None):
             print(f"  ! skipping {rep_set['name']}: {e}")
             failed.append(rep_set["name"])
             consecutive_failures += 1
+    return reps_by_url, failed
 
+
+def fetch_rows_for_sets(rep_sets, category=None):
+    """
+    Fetch and flatten every representative in `rep_sets`; returns a
+    FetchResult(sets, rows, fetched_sets, failed_sets), the last two being
+    lists of set names.
+
+    Downloads via fetch_representatives_for_sets(), so a set that can't be
+    downloaded is listed in `failed_sets` instead of aborting the run, and
+    upsert_master() never marks people in a failed set as "removed".
+
+    `category` is stamped on every row; None classifies each set.
+    """
+    reps_by_url, failed = fetch_representatives_for_sets(rep_sets)
     rows = []
     fetched = []
     for rep_set in rep_sets:
