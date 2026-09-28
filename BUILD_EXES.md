@@ -49,6 +49,7 @@ politician_scrapers.exe federal --no-enrich
 politician_scrapers.exe provincial
 politician_scrapers.exe local
 politician_scrapers.exe local --filter Toronto
+politician_scrapers.exe local --province BC
 politician_scrapers.exe all
 politician_scrapers.exe lookup "Jane Doe"
 politician_scrapers.exe lookup "Jane Doe" --live --category federal
@@ -56,6 +57,7 @@ politician_scrapers.exe lookup "Jane Doe" --live --category federal
 budget_scrapers.exe federal
 budget_scrapers.exe federal --refresh
 budget_scrapers.exe federal --since 2015
+budget_scrapers.exe federal --reviewed
 budget_scrapers.exe provincial
 budget_scrapers.exe provincial --province ontario
 budget_scrapers.exe local
@@ -63,7 +65,11 @@ budget_scrapers.exe local --municipality toronto
 budget_scrapers.exe all
 ```
 
-Run either exe with no arguments to see this list again.
+Run either exe with no arguments to see this list again, or add
+`--help` after a subcommand (e.g. `politician_scrapers.exe local --help`)
+to see its options. Any subcommand also accepts `--output-dir DIR` to
+write somewhere other than the Desktop. Both exes exit with a non-zero
+status when a run fails, so they're safe to use from Task Scheduler.
 
 ## Notes
 
