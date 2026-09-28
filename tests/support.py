@@ -204,12 +204,14 @@ SAMPLE_COMMITTEES = {
 
 
 class FakeFederalSources:
-    """OpenParliament + House of Commons XML, from the fixtures."""
+    """OpenParliament + House of Commons XML, from the fixtures, plus any
+    roles pages given as {House of Commons person ID: HTML}."""
 
-    def __init__(self, committees=None, details_override=None):
+    def __init__(self, committees=None, details_override=None, roles=None):
         self.data = load_fixture("openparliament_sample.json")
         self.committees = SAMPLE_COMMITTEES if committees is None else committees
         self.details = dict(self.data["details"], **(details_override or {}))
+        self.roles = roles or {}
 
     def openparliament(self, url):
         path = urllib.parse.urlsplit(url).path
@@ -221,6 +223,9 @@ class FakeFederalSources:
 
     def ourcommons(self, url):
         person_id = url.rsplit("(", 1)[-1].split(")", 1)[0]
+        if url.endswith("/roles"):
+            page = self.roles.get(person_id)
+            return FakeResponse(page) if page is not None else http_error(url, 404)
         if person_id not in self.committees:
             return http_error(url, 404)
         return FakeResponse(profile_xml(self.committees[person_id]))

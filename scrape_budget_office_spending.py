@@ -45,7 +45,6 @@ import os
 import re
 import sys
 from datetime import date
-from html.parser import HTMLParser
 
 from budget_common import budget_workbook_path, match_to_master, read_master_politicians
 from represent_common import (
@@ -53,7 +52,9 @@ from represent_common import (
     add_common_args,
     apply_common_args,
     explain_fetch_error,
+    find_table,
     get_output_dir,
+    html_tables,
     http_get,
     normalize_name,
     write_budget_tab,
@@ -130,63 +131,6 @@ def describe_quarters(quarters):
 
 # --- Reading the House of Commons pages --------------------------------------------
 
-class _PageParser(HTMLParser):
-    """Every table's rows, each a list of its cells' text (whatever tags
-    are inside them)."""
-
-    def __init__(self):
-        super().__init__(convert_charrefs=True)
-        self.tables = []
-        self._open_tables = []
-        self._row = self._cell = None
-
-    def handle_starttag(self, tag, attrs):
-        if tag == "table":
-            self._end_row()
-            table = []
-            self.tables.append(table)
-            self._open_tables.append(table)
-        elif tag == "tr" and self._open_tables:
-            self._end_row()
-            self._row = []
-        elif tag in ("td", "th") and self._row is not None:
-            self._end_cell()
-            self._cell = []
-        elif tag == "br" and self._cell is not None:
-            self._cell.append(" ")
-
-    def handle_endtag(self, tag):
-        if tag in ("td", "th"):
-            self._end_cell()
-        elif tag == "tr":
-            self._end_row()
-        elif tag == "table" and self._open_tables:
-            self._end_row()
-            self._open_tables.pop()
-
-    def handle_data(self, data):
-        if self._cell is not None:
-            self._cell.append(data)
-
-    def _end_cell(self):
-        if self._cell is not None and self._row is not None:
-            self._row.append(" ".join("".join(self._cell).split()))
-        self._cell = None
-
-    def _end_row(self):
-        self._end_cell()
-        if self._row and self._open_tables:
-            self._open_tables[-1].append(self._row)
-        self._row = None
-
-
-def _parse_page(text):
-    parser = _PageParser()
-    parser.feed(text)
-    parser.close()
-    return parser
-
-
 # A quarter's own page -- not the per-MP report pages beneath it
 # (.../2026/4/<id>), nor the old-format archive-members pages -- wherever
 # the page mentions one: a link, a menu option's value, a data attribute.
@@ -218,11 +162,6 @@ def parse_money(text):
     return -float(digits) if negative else float(digits)
 
 
-def _column_key(header):
-    """"Salaries **" -> "salaries"."""
-    return re.sub(r"[^a-z]", "", header.lower())
-
-
 def parse_summary(page_text, url=""):
     """
     The rows of one quarter's Summary of Expenditures table, as dicts with
@@ -230,25 +169,22 @@ def parse_summary(page_text, url=""):
     the four amounts. Raises ValueError if the table isn't there or an
     amount can't be read -- better to stop than to add up the wrong thing.
     """
-    for table in _parse_page(page_text).tables:
-        for i, header in enumerate(table):
-            keys = [_column_key(cell) for cell in header]
-            if not all(column in keys for column in REPORT_COLUMNS):
-                continue
-            index = {column: keys.index(column) for column in REPORT_COLUMNS}
-            rows = []
-            for cells in table[i + 1:]:
-                if len(cells) < len(keys) or not cells[index["name"]] or \
-                        normalize_name(cells[index["name"]]) == "total":
-                    continue
-                row = {column: cells[index[column]] for column in ("name", "constituency", "caucus")}
-                try:
-                    row.update({column: parse_money(cells[index[column]]) for column in CATEGORIES})
-                except ValueError as e:
-                    raise ValueError(f"{e} for {row['name']} on {url or 'the page'}") from None
-                rows.append(row)
-            return rows
-    raise ValueError(f"no expenditures table (Name, Constituency, Caucus, Salaries, ...) on {url or 'the page'}")
+    found = find_table(html_tables(page_text), REPORT_COLUMNS)
+    if not found:
+        raise ValueError(f"no expenditures table (Name, Constituency, Caucus, Salaries, ...) on {url or 'the page'}")
+    keys, table_rows = found
+    index = {column: keys.index(column) for column in REPORT_COLUMNS}
+    rows = []
+    for cells in table_rows:
+        if len(cells) < len(keys) or not cells[index["name"]] or normalize_name(cells[index["name"]]) == "total":
+            continue
+        row = {column: cells[index[column]] for column in ("name", "constituency", "caucus")}
+        try:
+            row.update({column: parse_money(cells[index[column]]) for column in CATEGORIES})
+        except ValueError as e:
+            raise ValueError(f"{e} for {row['name']} on {url or 'the page'}") from None
+        rows.append(row)
+    return rows
 
 
 _HONORIFIC_RE = re.compile(r"^(?:the\s+)?(?:right\s+|rt\.?\s+)?hon(?:\.|ourable\b)\s*", re.IGNORECASE)

@@ -35,6 +35,7 @@ import urllib.parse
 import urllib.request
 from collections import Counter, namedtuple
 from datetime import datetime, timezone
+from html.parser import HTMLParser
 
 BASE_URL = "https://represent.opennorth.ca"
 USER_AGENT = "ca-politician-scraper/2.0 (personal research script)"
@@ -177,6 +178,92 @@ def explain_fetch_error(error):
     host = urllib.parse.urlsplit(getattr(error, "url", "") or "").hostname or "the data source"
     print(f"Couldn't reach {host} ({error}).\n"
           f"Check your internet connection or try again later -- nothing was changed.")
+
+
+# --- Reading tables from web pages ------------------------------------------
+#
+# For sources that publish HTML rather than an API (the House of Commons'
+# expenditure reports and MP role histories). Tables are found by their
+# headings, not their position on the page, so a redesign that moves or
+# restyles them doesn't break the parsers -- and a missing table is
+# reported instead of guessed at.
+
+class _TableParser(HTMLParser):
+    """Collects every table's rows, each a list of its cells' text
+    (whatever tags are inside them)."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.tables = []
+        self._open_tables = []
+        self._row = self._cell = None
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "table":
+            self._end_row()
+            table = []
+            self.tables.append(table)
+            self._open_tables.append(table)
+        elif tag == "tr" and self._open_tables:
+            self._end_row()
+            self._row = []
+        elif tag in ("td", "th") and self._row is not None:
+            self._end_cell()
+            self._cell = []
+        elif tag == "br" and self._cell is not None:
+            self._cell.append(" ")
+
+    def handle_endtag(self, tag):
+        if tag in ("td", "th"):
+            self._end_cell()
+        elif tag == "tr":
+            self._end_row()
+        elif tag == "table" and self._open_tables:
+            self._end_row()
+            self._open_tables.pop()
+
+    def handle_data(self, data):
+        if self._cell is not None:
+            self._cell.append(data)
+
+    def _end_cell(self):
+        if self._cell is not None and self._row is not None:
+            self._row.append(" ".join("".join(self._cell).split()))
+        self._cell = None
+
+    def _end_row(self):
+        self._end_cell()
+        if self._row and self._open_tables:
+            self._open_tables[-1].append(self._row)
+        self._row = None
+
+
+def html_tables(page_text):
+    """Every table on an HTML page, as a list of rows, each a list of its
+    cells' text with runs of whitespace collapsed."""
+    parser = _TableParser()
+    parser.feed(page_text)
+    parser.close()
+    return parser.tables
+
+
+def column_key(header):
+    """How table headings are compared: lowercase letters only, so
+    "Province / Territory" is "provinceterritory", and footnote marks or a
+    different dash don't matter."""
+    return re.sub(r"[^a-z]", "", str(header).lower())
+
+
+def find_table(tables, columns):
+    """The first of `tables` with a heading row containing all of `columns`
+    (in column_key() form), as (heading keys, the rows below them); None
+    if there isn't one."""
+    for table in tables:
+        for i, header in enumerate(table):
+            keys = [column_key(cell) for cell in header]
+            if all(column in keys for column in columns):
+                return keys, table[i + 1:]
+    return None
 
 
 # --- Output location --------------------------------------------------------
