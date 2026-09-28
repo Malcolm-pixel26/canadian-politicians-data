@@ -2,7 +2,9 @@
 Test helpers: a fake network (urllib.request.urlopen), a fake clock
 (time.sleep / time.monotonic) so throttling and backoff are measurable
 and instant, and routes that serve the Represent / OpenParliament /
-House of Commons fixtures (trimmed copies of live responses).
+House of Commons fixtures (trimmed copies of live responses) and the
+Senate fixtures (rebuilt from the live pages' content -- see the note at
+the top of each).
 """
 import contextlib
 import io
@@ -27,6 +29,7 @@ import represent_common as rc  # noqa: E402
 
 REPRESENT = "https://represent.opennorth.ca"
 OPENPARLIAMENT = "https://api.openparliament.ca"
+SENATE = "https://sencanada.ca/umbraco/surface/SenatorsAjax/GetSenators"
 
 
 def load_fixture(name):
@@ -234,6 +237,37 @@ class FakeFederalSources:
         web.route(OPENPARLIAMENT, self.openparliament)
         web.route("https://www.ourcommons.ca/Members/", self.ourcommons)
         return self
+
+
+class FakeSenate:
+    """The Senate's List and Contact Information tabs, from the fixtures
+    (or the HTML / exception given for either)."""
+
+    def __init__(self, senators=None, contacts=None):
+        self.tabs = {
+            "senatorslist": load_fixture("senate_list.html") if senators is None else senators,
+            "senatorscontactinformation": load_fixture("senate_contacts.html") if contacts is None else contacts,
+        }
+
+    def handle(self, url):
+        tab = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query).get("displayFor", [""])[0]
+        page = self.tabs.get(tab)
+        if page is None:
+            return http_error(url, 404)
+        return page if isinstance(page, BaseException) else FakeResponse(page)
+
+    def install(self, web):
+        web.route(SENATE, self.handle)
+        return self
+
+
+def senate_list_without(*names):
+    """The List fixture minus the rows for these senators ("Last, First" as listed)."""
+    page = load_fixture("senate_list.html")
+    for name in names:
+        start = page.index(f">{name}</a>")
+        page = page[:page.rindex("<tr>", 0, start)] + page[page.index("</tr>", start) + len("</tr>"):]
+    return page
 
 
 class ScraperTestCase(unittest.TestCase):

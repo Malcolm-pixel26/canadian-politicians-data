@@ -43,7 +43,7 @@ from represent_common import (
 TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S UTC"
 
 CATEGORY_TITLES = {
-    "federal": "Federal (House of Commons)",
+    "federal": "Federal (House of Commons and Senate)",
     "provincial_territorial": "Provincial and territorial legislatures",
     "local": "Municipal councils",
 }
@@ -135,14 +135,27 @@ def _people(master_path):
     return people
 
 
-def _first_import_times(changelog):
-    """Each category's earliest Changelog timestamp: the "added" entries of
-    that moment are its first import, which is summarized, not listed."""
+def _first_import_times(changelog, people=None):
+    """
+    When each legislature or council first appears in the Changelog, keyed
+    by (category, its name), and each category's first entry, keyed by
+    category. The "added" entries of that moment are a first import -- a
+    first run, or a whole legislature newly covered, like the Senate --
+    which is summarized, not listed as new faces. `people` (see _people())
+    says which legislature each entry belongs to; without it, only whole
+    categories are recognised.
+    """
+    people = people or {}
     first = {}
     for entry in changelog:
-        category, stamp = entry.get("category"), str(entry.get("timestamp") or "")
-        if stamp and (category not in first or stamp < first[category]):
-            first[category] = stamp
+        stamp = str(entry.get("timestamp") or "")
+        if not stamp:
+            continue
+        category = entry.get("category")
+        legislature = (people.get((category, entry.get("key"))) or {}).get("representative_set", "")
+        for key in (category, (category, legislature)):
+            if key not in first or stamp < first[key]:
+                first[key] = stamp
     return first
 
 
@@ -179,7 +192,8 @@ def build_digest(entries, people=None, first_import_at=None):
             "when": _local(moment) if moment else str(entry.get("timestamp") or ""),
         }
         change_type = entry.get("change_type")
-        if change_type == "added" and entry.get("timestamp") == first_import_at.get(category):
+        first_import = first_import_at.get((category, person["legislature"])) or first_import_at.get(category)
+        if change_type == "added" and entry.get("timestamp") == first_import:
             section["first_import"] += 1
         elif change_type in ("added", "removed", "reactivated"):
             section[change_type].append(person)
@@ -320,7 +334,8 @@ def write_report(master_path, start, end, path, title):
     changelog = read_master_changelog(master_path)
     entries = [e for e in changelog
                if (moment := parse_timestamp(e.get("timestamp"))) and start <= moment < end]
-    digest = build_digest(entries, _people(master_path), _first_import_times(changelog))
+    people = _people(master_path)
+    digest = build_digest(entries, people, _first_import_times(changelog, people))
     subtitle = f"{_describe_period(start, end)} -- {len(entries)} recorded change(s)"
     write_text_file(path, render_html(digest, title, subtitle))
     return digest
@@ -355,8 +370,9 @@ def report_run(changes, master_path=None):
     try:
         master_path = master_path or get_master_path()
         if changes:
-            changelog = read_master_changelog(master_path)
-            digest = build_digest(changes, _people(master_path), _first_import_times(changelog))
+            people = _people(master_path)
+            firsts = _first_import_times(read_master_changelog(master_path), people)
+            digest = build_digest(changes, people, firsts)
             print("\n" + render_text(digest))
         path = write_daily_report(master_path=master_path)
         print(f"Today's change report: {path}")

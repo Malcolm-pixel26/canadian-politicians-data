@@ -11,10 +11,11 @@ Three modes:
 
        python3 lookup_politician.py "Jane Doe"
 
-2. Live lookup (--live) -- goes straight to the Represent API instead of
-   the cache. Searching everyone at every level of government takes only
-   a few requests (Represent's bulk download), so --category and --place
-   are optional ways to narrow the results rather than requirements.
+2. Live lookup (--live) -- goes straight to the Represent API (and the
+   Senate's website, for senators) instead of the cache. Searching
+   everyone at every level of government takes only a few requests
+   (Represent's bulk download), so --category and --place are optional
+   ways to narrow the results rather than requirements.
 
        python3 lookup_politician.py "Jane Doe" --live
        python3 lookup_politician.py "Jane Doe" --live --category federal
@@ -22,7 +23,9 @@ Three modes:
 
 3. Who represents a place (always live) -- by postal code, or by exact
    latitude,longitude (e.g. right-click your address in Google Maps).
-   Lists your MP, MPP/MLA/MNA, mayor and councillor(s) in one request.
+   Lists your MP, MPP/MLA/MNA, mayor and councillor(s) in one request,
+   plus your province's senators from master.xlsx if you've run
+   scrape_federal.py.
 
        python3 lookup_politician.py --postal-code "K1A 0A6"
        python3 lookup_politician.py --point 45.4236,-75.7009
@@ -40,18 +43,20 @@ enrichment (committees, first elected date) live, since that's cheap
 for a single person (skip with --no-enrich).
 
 This only pulls from public sources (Represent, OpenParliament, the
-House of Commons) that already publish these people's official,
-public-facing legislative contact info -- it does not search social
-media, news, or anything about their personal/private life.
+House of Commons, the Senate) that already publish these people's
+official, public-facing legislative contact info -- it does not search
+social media, news, or anything about their personal/private life.
 """
 import argparse
 import os
 import string
 import sys
 
+import senate
 from represent_common import (
     FEDERAL_ENRICHMENT_FIELDS,
     MASTER_FIELDS,
+    PROVINCES_AND_TERRITORIES,
     FetchError,
     add_common_args,
     apply_common_args,
@@ -63,9 +68,11 @@ from represent_common import (
     fetch_rows_for_sets,
     flatten_representative,
     get_master_path,
+    in_house_of_commons,
     normalize_name,
     normalize_postal_code,
     read_all_master_rows,
+    read_master_tab,
 )
 
 CATEGORY_ALIASES = {
@@ -164,19 +171,37 @@ def search_cache(name, category=None, place=None):
     return matches
 
 
+def _senate_may_match(place):
+    """Whether --place could select senators: it names the Senate, or a
+    province or territory (their district)."""
+    place = (place or "").lower()
+    return place in senate.SET_NAME.lower() or any(
+        place in province.lower() for province in PROVINCES_AND_TERRITORIES.values())
+
+
 def search_live(name, category=None, place=None):
     sets = fetch_all_representative_sets()
     if category:
         sets = [s for s in sets if classify_set(s) == category]
     if place:
         sets = [s for s in sets if place.lower() in s["name"].lower()]
-        if not sets:
-            print(f"No representative-sets matched --place {place!r}.")
-            return []
+    with_senate = category in (None, "federal") and _senate_may_match(place)
+    if not sets and not with_senate:
+        print(f"No representative-sets matched --place {place!r}.")
+        return []
 
-    print(f"Searching {len(sets)} legislature(s)/council(s) live...")
-    result = fetch_rows_for_sets(sets)
-    return [row for row in result.rows if name_matches(name, row.get("name", ""))]
+    rows = []
+    if sets:
+        print(f"Searching {len(sets)} legislature(s)/council(s) live...")
+        rows = fetch_rows_for_sets(sets).rows
+    if with_senate:
+        try:
+            senators = senate.fetch_senators()
+        except (FetchError, ValueError) as e:
+            print(f"  ! Couldn't search the Senate ({e}).")
+            senators = []
+        rows += [r for r in senators if not place or _in_place(r, place)]
+    return [row for row in rows if name_matches(name, row.get("name", ""))]
 
 
 # --- Who represents a place --------------------------------------------------
@@ -216,6 +241,32 @@ def _office_rank(row):
     return 0 if any(word in office for word in HEAD_OF_COUNCIL_WORDS) else 1
 
 
+def senators_from_master(province):
+    """A province's or territory's senators, from master.xlsx -- the Senate
+    isn't in Represent, and this way a lookup stays one request. [] if
+    there's no master.xlsx yet or it has no senators."""
+    path = get_master_path()
+    if not province or not os.path.exists(path):
+        return []
+    return [row for row in read_master_tab(path, "Federal").values()
+            if row.get("representative_set") == senate.SET_NAME and row.get("status") != "removed"
+            and row.get("province_territory") == province]
+
+
+def _province_of(rows):
+    """The province or territory a point is in, from its MP's riding."""
+    return next((r["province_territory"] for r in rows if in_house_of_commons(r) and r.get("province_territory")), "")
+
+
+def _print_senators(senators):
+    province = PROVINCES_AND_TERRITORIES.get(senators[0]["province_territory"], senators[0]["district_name"])
+    print(f"  {senate.SET_NAME} -- {len(senators)} senator(s) for {province} (from master.xlsx)")
+    for row in sorted(senators, key=lambda r: (r["last_name"], r["name"])):
+        party = f" ({row['party_name']})" if row["party_name"] else ""
+        contact = ", ".join(v for v in (row["email"], row["phone"]) if v)
+        print(f"    {row['elected_office']} {row['name']}{party}" + (f" -- {contact}" if contact else ""))
+
+
 def print_location_results(rows, where, ambiguous=frozenset()):
     print(f"\nRepresentatives for {where}:")
     for level in ("federal", "provincial_territorial", "local", "other"):
@@ -223,10 +274,13 @@ def print_location_results(rows, where, ambiguous=frozenset()):
         if not level_rows:
             continue
         print(f"\n{LEVEL_TITLES[level]}")
-        for set_name in sorted({r["representative_set"] for r in level_rows}):
-            print(f"  {set_name}")
+        for set_name in sorted({r["representative_set"] for r in level_rows}, key=lambda n: (n == senate.SET_NAME, n)):
             set_rows = sorted((r for r in level_rows if r["representative_set"] == set_name),
                               key=lambda r: (_office_rank(r), r["district_name"], r["name"]))
+            if set_name == senate.SET_NAME:
+                _print_senators(set_rows)  # one line each: a province can have 24
+                continue
+            print(f"  {set_name}")
             for row in set_rows:
                 party = f" ({row['party_name']})" if row["party_name"] else ""
                 flag = "   <- one of these, depending on the street address" \
@@ -258,17 +312,20 @@ def lookup_location(args):
                     return 1
                 raise
             rows = representatives_for_postal_code(payload)
+            province = payload.get("province") or _province_of(rows)
             city = string.capwords(payload.get("city") or "")
             place = ", ".join(v for v in (city, payload.get("province")) if v)
             where = f"{code[:3]} {code[3:]}" + (f" ({place})" if place else "")
         else:
             latitude, longitude = args.point
             rows = _flatten_located(fetch_representatives_at_point(latitude, longitude))
+            province = _province_of(rows)
             where = f"{latitude}, {longitude}"
     except FetchError as e:
         explain_fetch_error(e)
         return 1
 
+    rows += senators_from_master(province)
     if args.category:
         rows = [r for r in rows if r["category"] == args.category]
     if args.place:
@@ -294,9 +351,9 @@ def print_match(row):
 
 
 def enrich_and_print_federal(rows):
-    """Federal rows are cheap to enrich live, on the spot, since it's just
-    a person or two rather than the whole House."""
-    federal = [r for r in rows if r.get("category") == "federal"]
+    """MPs are cheap to enrich live, on the spot, since it's just a person
+    or two rather than the whole House. (Senators have no House data.)"""
+    federal = [r for r in rows if in_house_of_commons(r)]
     if not federal:
         return
     try:

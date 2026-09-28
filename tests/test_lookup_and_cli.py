@@ -1,7 +1,7 @@
 import sys
 from unittest import mock
 
-from support import FakeWeb, ScraperTestCase, sample_represent
+from support import FakeSenate, FakeWeb, ScraperTestCase, sample_represent
 
 import changes_digest
 import cli_budgets
@@ -45,8 +45,10 @@ class LookupTests(ScraperTestCase):
     def test_live_lookup_needs_no_category(self):
         with FakeWeb() as web:
             sample_represent().install(web)
+            FakeSenate().install(web)
             self.assertEqual(lookup_politician.main(["brisebois", "--live"]), 0)
-            self.assertLessEqual(len(web.requests), 2)
+            self.assertLessEqual(web.count("represent.opennorth.ca"), 2)
+            self.assertEqual(web.count("sencanada.ca"), 2)  # senators are searched too
         self.assertIn("Conseil municipal de Senneville", self.output.getvalue())
 
     def test_live_lookup_by_place(self):

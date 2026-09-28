@@ -5,6 +5,7 @@ import os
 
 from support import (
     FakeFederalSources,
+    FakeSenate,
     FakeWeb,
     ScraperTestCase,
     http_error,
@@ -25,6 +26,7 @@ class FederalScraperTests(ScraperTestCase):
     def run_federal(self, *argv, sources=None):
         with FakeWeb() as web:
             sample_represent().install(web)
+            FakeSenate().install(web)
             (sources or FakeFederalSources()).install(web)
             exit_code = scrape_federal.main(list(argv))
         return exit_code, web
@@ -43,8 +45,10 @@ class FederalScraperTests(ScraperTestCase):
         with open(os.path.join(self.tmp, "federal", "federal_mps.json"), encoding="utf-8") as f:
             self.assertEqual(len(json.load(f)), 6)
         master = {r["Name"]: r for r in self.read_sheet(self.master_path, "Federal")}
-        self.assertEqual(len(master), 6)
+        sets = [r["Representative Set"] for r in master.values()]
+        self.assertEqual((sets.count("House of Commons"), sets.count("Senate of Canada")), (6, 8))
         self.assertEqual(master["Parm Bains"]["Province Territory"], "BC")
+        self.assertTrue(os.path.exists(os.path.join(self.tmp, "federal", "senators.csv")))
 
     def test_enrichment(self):
         self.run_federal()
@@ -77,15 +81,17 @@ class FederalScraperTests(ScraperTestCase):
     def test_enrichment_outage_does_not_stop_the_run(self):
         with FakeWeb() as web:
             sample_represent().install(web)
+            FakeSenate().install(web)
             web.route("https://api.openparliament.ca", lambda url: http_error(url, 503))
             web.route("https://www.ourcommons.ca", lambda url: http_error(url, 503))
             exit_code = scrape_federal.main([])
         self.assertEqual(exit_code, 0)
-        self.assertEqual(len(self.read_sheet(self.master_path, "Federal")), 6)
+        self.assertEqual(len(self.read_sheet(self.master_path, "Federal")), 6 + 8)
 
     def test_unreachable_committee_site_is_given_up_on(self):
         with FakeWeb() as web:
             sample_represent().install(web)
+            FakeSenate().install(web)
             FakeFederalSources().install(web)
             web.route("https://www.ourcommons.ca", lambda url: TimeoutError("timed out"))
             self.assertEqual(scrape_federal.main([]), 0)
@@ -158,6 +164,7 @@ class ProvincialAndLocalTests(ScraperTestCase):
     def test_scrape_all_shares_downloads_and_keeps_going(self):
         with FakeWeb() as web:
             sample_represent().install(web)
+            FakeSenate().install(web)
             FakeFederalSources().install(web)
             web.route("https://www.ourcommons.ca", lambda url: RuntimeError("boom"))
             exit_code = scrape_all.main([])
@@ -165,4 +172,5 @@ class ProvincialAndLocalTests(ScraperTestCase):
             self.assertEqual(web.count("/representatives/?"), 1)
         self.assertEqual(exit_code, 0)
         self.assertEqual(self.sheet_names(self.master_path), ["Federal", "Provincial_Territorial", "Local", "Changelog"])
-        self.assertEqual(len(rc.read_all_master_rows(self.master_path)), len(SAMPLE["representatives"]))
+        senators = 8
+        self.assertEqual(len(rc.read_all_master_rows(self.master_path)), len(SAMPLE["representatives"]) + senators)

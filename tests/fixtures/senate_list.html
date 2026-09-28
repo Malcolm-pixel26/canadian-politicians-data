@@ -1,0 +1,66 @@
+<!-- The HTML sencanada.ca/en/senators/ loads into its "List" tab
+     (SenatorsAjax/GetSenators?Lang=en&displayFor=senatorslist), trimmed to
+     a few senators. Rebuilt from the live table's content (September 2026):
+     the rows, cells and footnote are as published; the markup around them
+     is a reconstruction, since the parser only relies on the table's
+     headings, its cells and the link in each row. -->
+<div class="sc-senators-filters">
+  <span>Filter by:</span>
+  <select class="sc-senators-filter">
+    <option value="all">All</option><option value="AB">Alberta</option><option value="MB">Manitoba</option>
+    <option value="CSG">Canadian Senators Group</option><option value="ISG">Independent Senators Group</option>
+  </select>
+</div>
+<table class="table sc-senators-list-table">
+  <thead>
+    <tr>
+      <th>Name</th><th>Affiliation</th><th>Province <span>(Designation)</span></th>
+      <th>Date of nomination</th><th>Date of retirement</th><th>Appointed on the advice of</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><a href="/en/senators/adler-charles/">Adler, Charles S.</a></td>
+      <td><abbr title="Canadian Senators Group">CSG</abbr></td><td>Manitoba</td>
+      <td>2024-08-16</td><td>2029-08-25</td><td>Trudeau, Justin (Lib.)</td>
+    </tr>
+    <tr>
+      <td><a href="/en/senators/brazeau-patrick/">Brazeau, Patrick</a></td>
+      <td>Non-affiliated</td><td>Quebec</td>
+      <td>2009-01-08</td><td>2049-11-11</td><td>Harper, Stephen (C)</td>
+    </tr>
+    <tr>
+      <td><a href="/en/senators/carignan-claude/">Carignan, Claude, P.C.</a></td>
+      <td><abbr title="Conservative Party of Canada">C</abbr></td><td>Quebec</td>
+      <td>2009-08-27</td><td>2039-12-04</td><td>Harper, Stephen (C)</td>
+    </tr>
+    <tr>
+      <td><a href="/en/senators/karetak-lindell-nancy/">Karetak-Lindell, Nancy</a></td>
+      <td><abbr title="Independent Senators Group">ISG</abbr></td><td>Nunavut</td>
+      <td>2024-12-19</td><td>2032-12-10</td><td>Trudeau, Justin (Lib.)</td>
+    </tr>
+    <tr>
+      <td><a href="/en/senators/manning-fabian/">Manning, Fabian</a></td>
+      <td><abbr title="Conservative Party of Canada">C</abbr></td><td>Newfoundland and Labrador</td>
+      <td>2011-05-25 <sup><a href="#footnote-1">1</a></sup></td><td>2039-05-21</td><td>Harper, Stephen (C)</td>
+    </tr>
+    <tr>
+      <td><a href="/en/senators/martel-richard/">Martel, Richard</a></td>
+      <td>Non-affiliated</td><td>Quebec</td>
+      <td>2026-07-24</td><td>2036-03-23</td><td>Carney, Mark (Lib.)</td>
+    </tr>
+    <tr>
+      <td><a href="/en/senators/osler-flordeliz-gigi/">Osler, Flordeliz (Gigi)</a></td>
+      <td><abbr title="Canadian Senators Group">CSG</abbr></td><td>Manitoba</td>
+      <td>2022-09-26</td><td>2043-09-09</td><td>Trudeau, Justin (Lib.)</td>
+    </tr>
+    <tr>
+      <td><a href="/en/senators/surette-allister/">Surette, Allister</a></td>
+      <td><abbr title="Independent Senators Group">ISG</abbr></td><td>Nova Scotia</td>
+      <td>2024-12-19</td><td>2036-09-21</td><td>Trudeau, Justin (Lib.)</td>
+    </tr>
+  </tbody>
+</table>
+<ol class="sc-senators-footnotes">
+  <li id="footnote-1">1 Manning, Fabian was also a senator from 2009-01-02 to 2011-03-28</li>
+</ol>

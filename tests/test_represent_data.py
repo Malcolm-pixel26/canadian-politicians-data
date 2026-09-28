@@ -74,3 +74,26 @@ class FlattenTests(ScraperTestCase):
         self.assertEqual(row["email"], "")
         self.assertEqual(row["roles"], "")
         self.assertTrue(all(v is not None for v in row.values()))
+
+
+class HelperTests(ScraperTestCase):
+    def test_phone_numbers_are_written_like_represents(self):
+        for raw, expected in (("(867) 975-5050", "1 867 975-5050"), ("613-943-4619", "1 613 943-4619"),
+                              ("1-800-267-7362", "1 800 267-7362"), ("+1 343.991.5530", "1 343 991-5530"),
+                              ("  ", ""), ("613-943-4619 ext. 2", "613-943-4619 ext. 2"), ("TBA", "TBA")):
+            with self.subTest(raw=raw):
+                self.assertEqual(rc.format_phone(raw), expected)
+
+    def test_province_codes_from_names(self):
+        for text, expected in (("Manitoba", "MB"), ("Quebec - De Lorimier", "QC"), ("Québec", "QC"),
+                               ("Ontario (Toronto)", "ON"), ("Nova Scotia", "NS"), ("Newfoundland and Labrador", "NL"),
+                               ("Northwest Territories", "NT"), ("nunavut", "NU"), ("Ontarioville", ""), ("", "")):
+            with self.subTest(text=text):
+                self.assertEqual(rc.province_code(text), expected)
+
+    def test_table_rows_keep_their_links(self):
+        tables = rc.html_tables('<table><tr><th>Name</th></tr><tr><td><a href="/a">A</a> '
+                                '<a href="mailto:a@b.ca">email</a></td></tr></table>')
+        keys, rows = rc.find_table(tables, ("name",))
+        self.assertEqual(rows, [["A email"]])
+        self.assertEqual(rows[0].links, ["/a", "mailto:a@b.ca"])
