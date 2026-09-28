@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
 Single entry point that bundles scrape_budget_federal.py,
-scrape_budget_provincial_territorial.py, scrape_budget_local.py, and
-scrape_all_budgets.py into one program -- meant to be compiled into
-one Windows .exe with PyInstaller (see build_exes.bat).
+scrape_budget_office_spending.py, scrape_budget_provincial_territorial.py,
+scrape_budget_local.py, and scrape_all_budgets.py into one program --
+meant to be compiled into one Windows .exe with PyInstaller (see
+build_exes.bat).
 
 Whichever underlying script you want to run is picked with a
 subcommand as the first argument; everything after that is passed
@@ -14,6 +15,8 @@ Usage (once compiled: budget_scrapers.exe <subcommand> ...):
     budget_scrapers federal
     budget_scrapers federal --refresh
     budget_scrapers federal --since 2015
+    budget_scrapers spending
+    budget_scrapers spending --fiscal-year 2024-2025
     budget_scrapers provincial
     budget_scrapers provincial --province ontario
     budget_scrapers local
@@ -29,7 +32,7 @@ Run with no arguments (or an unrecognized one) to see this list again.
 import sys
 import traceback
 
-COMMANDS = ("federal", "provincial", "provincial_territorial", "local", "all")
+COMMANDS = ("federal", "spending", "office_spending", "provincial", "provincial_territorial", "local", "all")
 
 
 def _run(command):
@@ -37,6 +40,9 @@ def _run(command):
     if command == "federal":
         import scrape_budget_federal
         return scrape_budget_federal.main()
+    elif command in ("spending", "office_spending"):
+        import scrape_budget_office_spending
+        return scrape_budget_office_spending.main()
     elif command in ("provincial", "provincial_territorial"):
         import scrape_budget_provincial_territorial
         return scrape_budget_provincial_territorial.main()

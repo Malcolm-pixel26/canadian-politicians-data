@@ -57,11 +57,15 @@ politician_scrapers.exe lookup --postal-code "K1A 0A6"
 politician_scrapers.exe digest --days 7
 politician_scrapers.exe votes
 politician_scrapers.exe votes --bill C-30 --activity
+politician_scrapers.exe maps
+politician_scrapers.exe maps --level local --province ON
 
 budget_scrapers.exe federal
 budget_scrapers.exe federal --refresh
 budget_scrapers.exe federal --since 2015
 budget_scrapers.exe federal --reviewed
+budget_scrapers.exe spending
+budget_scrapers.exe spending --fiscal-year 2024-2025
 budget_scrapers.exe provincial
 budget_scrapers.exe provincial --province ontario
 budget_scrapers.exe local

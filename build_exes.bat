@@ -23,6 +23,7 @@ pyinstaller --onefile --name politician_scrapers ^
     --hidden-import lookup_politician ^
     --hidden-import scrape_votes ^
     --hidden-import changes_digest ^
+    --hidden-import make_maps ^
     --hidden-import openparliament_enrich ^
     --hidden-import represent_common ^
     cli_politicians.py
@@ -33,6 +34,7 @@ echo Building budget_scrapers.exe ...
 pyinstaller --onefile --name budget_scrapers ^
     --console ^
     --hidden-import scrape_budget_federal ^
+    --hidden-import scrape_budget_office_spending ^
     --hidden-import scrape_budget_provincial_territorial ^
     --hidden-import scrape_budget_local ^
     --hidden-import scrape_all_budgets ^
