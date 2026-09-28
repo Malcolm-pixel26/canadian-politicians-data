@@ -69,19 +69,29 @@ def _mark_fresh(row, *fields):
 
 # --- OpenParliament ---------------------------------------------------------
 
+def op_get_all(path, **params):
+    """Every object from an OpenParliament listing (e.g. "/votes/"),
+    following its pagination.next_url links. `params` become the query
+    string (format=json and limit=500 are added)."""
+    query = urllib.parse.urlencode(dict({"format": "json", "limit": 500}, **params))
+    url = f"{OP_BASE_URL}{path}?{query}"
+    objects = []
+    visited = set()
+    while url and url not in visited:
+        visited.add(url)
+        payload = http_get_json(url, headers=OP_HEADERS)
+        objects.extend(payload.get("objects") or [])
+        next_link = (payload.get("pagination") or {}).get("next_url")
+        url = urllib.parse.urljoin(OP_BASE_URL, next_link) if next_link else None
+    return objects
+
+
 def fetch_politician_list(include_former=False):
     """Every politician OpenParliament lists: current MPs by default, or
     current + former with include_former=True."""
-    url = f"{OP_BASE_URL}/politicians/?format=json&limit=500"
     if include_former:
-        url += "&include=all"  # the API's filter; there's no "current" parameter
-    politicians = []
-    while url:
-        payload = http_get_json(url, headers=OP_HEADERS)
-        politicians.extend(payload.get("objects") or [])
-        next_link = (payload.get("pagination") or {}).get("next_url")
-        url = urllib.parse.urljoin(OP_BASE_URL, next_link) if next_link else None
-    return politicians
+        return op_get_all("/politicians/", include="all")  # there's no "current" parameter
+    return op_get_all("/politicians/")
 
 
 def fetch_all_politicians(include_former=False):

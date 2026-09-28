@@ -21,6 +21,8 @@ pyinstaller --onefile --name politician_scrapers ^
     --hidden-import scrape_local ^
     --hidden-import scrape_all ^
     --hidden-import lookup_politician ^
+    --hidden-import scrape_votes ^
+    --hidden-import changes_digest ^
     --hidden-import openparliament_enrich ^
     --hidden-import represent_common ^
     cli_politicians.py

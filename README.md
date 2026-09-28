@@ -13,7 +13,7 @@ Data comes from free, public, no-key APIs and open data:
   Commons, 12 of the 13 provincial/territorial legislatures (there is no
   Nunavut set) and 108 municipal councils, about 3,800 people in all.
 - [OpenParliament](https://openparliament.ca/api/) provides each MP's
-  first elected date and profile link.
+  first elected date, profile link and voting record.
 - [House of Commons open data](https://www.ourcommons.ca/en/open-data)
   provides each MP's current committee memberships.
 - [Elections Canada open data](https://www.elections.ca/content.aspx?section=fin&dir=oda&document=index&lang=e)
@@ -49,7 +49,11 @@ written up in [docs/IMPROVEMENTS.md](docs/IMPROVEMENTS.md).
 - `scrape_local.py`: municipal councillors and mayors.
 - `scrape_all.py`: runs all three, one after another.
 - `lookup_politician.py`: look up one named politician on demand,
-  without a full scrape.
+  without a full scrape, or everyone who represents a postal code.
+- `changes_digest.py`: a readable report of what changed (departures,
+  new faces, party switches, contact changes) over any period.
+- `scrape_votes.py`: how every MP voted in a session of the House of
+  Commons, with per-MP statistics.
 - `scrape_budget_federal.py`: federal campaign contribution totals per
   politician, from Elections Canada's public political financing data.
   Writes the **Federal** tab of `MASTER_CANADA_POLITICIAN_BUDGET.xlsx`.
@@ -95,6 +99,9 @@ than silently ignored.
 | `python3 scrape_local.py --filter Toronto` | only councils whose name contains "Toronto" |
 | `python3 scrape_local.py --province QC` | only councils in one province/territory (two-letter code) |
 | `python3 scrape_all.py --province ON --no-enrich` | `--filter`/`--province` go to the local scraper, `--no-enrich` to the federal one |
+| `python3 lookup_politician.py --postal-code "K1A 0A6"` | everyone who represents that postal code, at every level of government |
+| `python3 changes_digest.py --days 7` | a report of everything that changed in the last 7 days |
+| `python3 scrape_votes.py --bill C-30` | how every MP voted on a bill (leave out `--bill` for the whole session) |
 
 A full run is quick. The local scraper downloads all ~3,800
 representatives in a handful of requests, so it finishes in seconds
@@ -122,6 +129,10 @@ politician_scrapers.exe local --province BC
 politician_scrapers.exe all
 politician_scrapers.exe lookup "Jane Doe"
 politician_scrapers.exe lookup "Jane Doe" --live --category federal
+politician_scrapers.exe lookup --postal-code "K1A 0A6"
+politician_scrapers.exe digest --days 7
+politician_scrapers.exe votes
+politician_scrapers.exe votes --bill C-30 --activity
 
 budget_scrapers.exe federal
 budget_scrapers.exe federal --refresh
@@ -153,10 +164,16 @@ variable, to put it anywhere else.
   master.xlsx                        <- persistent, updated every run (see below)
   master.backup.xlsx                 <- the previous version of master.xlsx
   MASTER_CANADA_POLITICIAN_BUDGET.xlsx  <- funding data, one tab per level of government (see below)
+  changes/
+    changes_2026-09-28.html          <- what changed that day (refreshed by every run)
+    changes_2026-09-22_to_2026-09-28.html  <- from changes_digest.py
   federal/
     federal_mps.xlsx
     federal_mps.csv
     federal_mps.json
+    votes_45-1.xlsx                  <- from scrape_votes.py (45-1 = the session)
+    votes_45-1_summary.csv
+    votes_45-1_ballots.csv
   provincial_territorial/
     all_provincial_territorial.xlsx
     all_provincial_territorial.csv
@@ -249,7 +266,7 @@ header, so they keep working. New columns are filled in on the next run
 without flooding the changelog. The previous version of `master.xlsx`
 is kept as `master.backup.xlsx`.
 
-## `lookup_politician.py`: look up one person on demand
+## `lookup_politician.py`: look up one person, or who represents a place
 
 ```bash
 # Fast: searches your already-scraped master.xlsx
@@ -270,11 +287,101 @@ get OpenParliament / House of Commons enrichment pulled live
 (committees, first elected date), since that's cheap for a single
 person (`--no-enrich` skips it).
 
+### Who represents a postal code?
+
+```bash
+python3 lookup_politician.py --postal-code "K1A 0A6"
+python3 lookup_politician.py --point 45.4236,-75.7009    # exact: latitude,longitude
+```
+
+This lists everyone who represents that place, grouped by level of
+government: MP, MPP/MLA/MNA, mayor, councillor(s), and regional council
+where there is one. Each entry has email, phone and local office. It
+takes one request to Represent, plus live committee data for the MP.
+Add `--category` to show just one level.
+
+A postal code can straddle a district boundary. When it does, every
+possible representative is listed and flagged "one of these, depending
+on the street address". Right-click the address in Google Maps to copy
+its coordinates, then use `--point` for the exact answer.
+
 This only pulls from Represent, OpenParliament and the House of
 Commons. All three publish these people's official, public-facing
 legislative contact info as part of their role as elected officials.
 It doesn't search social media, news coverage, or anything about a
 person's private life.
+
+## Change reports: what changed, in plain English
+
+Every scraper run prints a short summary of what it found changed, and
+refreshes that day's report, `output/changes/changes_YYYY-MM-DD.html`.
+For any other period:
+
+```bash
+python3 changes_digest.py              # the last 7 days
+python3 changes_digest.py --days 30
+python3 changes_digest.py --since 2026-09-01
+```
+
+A report groups each level of government's changes into:
+
+- party switches;
+- who left office, who's new and who returned;
+- seat, office, role and committee changes;
+- name changes;
+- updated contact details (email, phone, office addresses, web pages).
+
+Each entry shows the before and after values and when the change was
+recorded. Photo and source-link updates are only counted. The very
+first run of each scraper is summarized ("first import of 343
+people") rather than listed. Reports are built from `master.xlsx`'s
+Changelog, so they show what the scrapers saw: run the scrapers
+regularly (e.g. `scrape_all.py` daily) and a weekly digest will be
+complete. With the .exe files, two Windows Task Scheduler tasks do it:
+`politician_scrapers.exe all` daily and
+`politician_scrapers.exe digest --days 7` weekly.
+
+## `scrape_votes.py`: voting records
+
+```bash
+python3 scrape_votes.py                            # every vote in the current session
+python3 scrape_votes.py --bill C-30 --bill C-266    # only votes on these bills
+python3 scrape_votes.py --session 44-1              # an earlier session
+python3 scrape_votes.py --activity                  # also count bills sponsored and speeches
+```
+
+The data comes from OpenParliament. The script writes
+`output/federal/votes_<session>.xlsx` with three sheets:
+
+- **MP Summary**, one row per MP:
+  - votes held;
+  - Yes / No / Paired / Didn't vote;
+  - participation % (Paired counts as taking part);
+  - votes against their party, and % with their party;
+  - with `--activity`, bills sponsored and non-procedural speeches in
+    the House and in committee.
+- **Votes**: every vote's date, bill, description, result, totals and
+  how each party voted.
+- **Ballots**: one row per MP and one column per vote, so you can see
+  how everyone voted on each one.
+
+There are CSV copies too (`_summary.csv`, and `_ballots.csv` with one
+row per MP per vote). A run limited with `--bill` adds the bill numbers
+to the file names, so it never overwrites the whole-session files.
+
+"Votes against party" compares each Yes/No with how most of that MP's
+party voted, using the party they belonged to *at the time of that
+vote*. So an MP who crossed the floor is compared with the right caucus
+on each side of the switch. Independents have no party line, and a
+party split exactly down the middle has none for that vote.
+OpenParliament's own "dissent" flag is marked by them as not reliable
+for research, so it isn't used.
+
+A full session takes a few minutes the first time: one request per
+vote at OpenParliament's polite rate of about one a second. Recorded
+votes don't change, so each vote is cached under `output/_cache/` and
+later runs only fetch new ones. `--activity` counts speeches one MP at
+a time and adds roughly 10–20 minutes for the whole House.
 
 ## Budget scripts: campaign funding per politician
 
@@ -413,7 +520,7 @@ data source. Once a fetcher is added you can run just that one with
 ## Development
 
 The tests use only the standard library (plus openpyxl), run offline in
-about two seconds, and use trimmed copies of real API responses in
+a few seconds, and use trimmed copies of real API responses in
 `tests/fixtures/`:
 
 ```bash
