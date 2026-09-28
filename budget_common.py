@@ -112,34 +112,31 @@ def _riding_differs(row, contrib):
     return bool(district and filed_under) and district not in filed_under
 
 
-def build_budget_rows(master_rows, contribution_totals, not_found_status):
+def match_to_master(master_rows, entries):
     """
-    One row per politician in `master_rows` -- matched to their
-    contribution totals by normalized full name, or failing that by first
-    word of the first name + last name when that's unambiguous (so
-    "Jasraj Hallan" still finds "Jasraj Singh Hallan"); `not_found_status`
-    otherwise -- followed by one row per recipient in the totals that
-    matched nobody, so no funding data silently disappears.
+    Pair each politician in `master_rows` with their entry in `entries`
+    (a dict keyed by normalize_name(name), each entry with
+    raw_recipient_name and optionally first_name, last_name and
+    electoral_districts): by normalized full name, or failing that by
+    first word of the first name + last name when that's unambiguous (so
+    "Jasraj Hallan" still finds "Jasraj Singh Hallan").
+
+    Returns ([(master row, entry key or None, match status)], [keys of
+    entries that matched nobody]). A match whose riding isn't among the
+    entry's electoral_districts is flagged "riding differs -- check".
     """
     by_short_key = {}
-    for key, entry in contribution_totals.items():
+    for key, entry in entries.items():
         short = _short_key(entry.get("first_name", ""), entry.get("last_name", ""), entry.get("raw_recipient_name") or key)
         if short:
             by_short_key.setdefault(short, []).append(key)
 
-    budget_rows = []
+    pairs = []
     matched_keys = set()
     for row in master_rows:
-        entry = {
-            "name": row.get("name", ""),
-            "category": row.get("category", ""),
-            "party_name": row.get("party_name", ""),
-            "representative_set": row.get("representative_set", ""),
-            "province_territory": row.get("province_territory", ""),
-        }
         key = normalize_name(row.get("name", ""))
         status = "matched"
-        if key not in contribution_totals:
+        if key not in entries:
             candidates = by_short_key.get(
                 _short_key(row.get("first_name", ""), row.get("last_name", ""), row.get("name", "")), []
             )
@@ -147,19 +144,44 @@ def build_budget_rows(master_rows, contribution_totals, not_found_status):
             status = "matched (first + last name only -- check)"
         if key:
             matched_keys.add(key)
-            contrib = contribution_totals[key]
-            entry.update(contribution_columns(contrib))
-            if _riding_differs(row, contrib):
+            if _riding_differs(row, entries[key]):
                 status += "; riding differs -- check"
+        pairs.append((row, key, status if key else None))
+    return pairs, [key for key in entries if key not in matched_keys]
+
+
+def master_columns(row):
+    """The columns every budget tab copies from master.xlsx."""
+    return {
+        "name": row.get("name", ""),
+        "category": row.get("category", ""),
+        "party_name": row.get("party_name", ""),
+        "representative_set": row.get("representative_set", ""),
+        "province_territory": row.get("province_territory", ""),
+    }
+
+
+def build_budget_rows(master_rows, contribution_totals, not_found_status):
+    """
+    One row per politician in `master_rows` -- matched to their
+    contribution totals by match_to_master()'s rules, `not_found_status`
+    otherwise -- followed by one row per recipient in the totals that
+    matched nobody, so no funding data silently disappears.
+    """
+    pairs, unmatched = match_to_master(master_rows, contribution_totals)
+    budget_rows = []
+    for row, key, status in pairs:
+        entry = master_columns(row)
+        if key:
+            entry.update(contribution_columns(contribution_totals[key]))
             entry["match_status"] = status
         else:
             entry.update({field: "" for field in _CONTRIBUTION_FIELDS})
             entry["match_status"] = not_found_status
         budget_rows.append(entry)
 
-    for key, contrib in contribution_totals.items():
-        if key in matched_keys:
-            continue
+    for key in unmatched:
+        contrib = contribution_totals[key]
         entry = {"name": contrib.get("raw_recipient_name") or key, "category": "", "party_name": "",
                  "representative_set": "", "province_territory": ""}
         entry.update(contribution_columns(contrib))

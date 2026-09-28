@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-Runs all three budget scripts in sequence -- federal, provincial/
-territorial, then local -- each updating its own tab of:
+Runs all four budget scripts in sequence -- federal campaign
+contributions, MPs' office spending, provincial/territorial, then
+local -- each updating its own tab of:
 
     ~/Desktop/output/MASTER_CANADA_POLITICIAN_BUDGET.xlsx
 
@@ -21,6 +22,7 @@ import traceback
 
 import scrape_budget_federal
 import scrape_budget_local
+import scrape_budget_office_spending
 import scrape_budget_provincial_territorial
 from budget_common import budget_workbook_path
 from represent_common import add_common_args, apply_common_args
@@ -28,7 +30,7 @@ from represent_common import add_common_args, apply_common_args
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(
-        description="Update all three tabs of MASTER_CANADA_POLITICIAN_BUDGET.xlsx."
+        description="Update every tab of MASTER_CANADA_POLITICIAN_BUDGET.xlsx."
     )
     parser.add_argument("--refresh", action="store_true", help="passed to scrape_budget_federal.py")
     parser.add_argument("--since", type=int, metavar="YEAR", help="passed to scrape_budget_federal.py")
@@ -42,9 +44,10 @@ def main(argv=None):
     apply_common_args(args)
 
     steps = [
-        ("1/3: Federal", lambda: scrape_budget_federal.run(args)),
-        ("2/3: Provincial/Territorial", lambda: scrape_budget_provincial_territorial.main([])),
-        ("3/3: Local", lambda: scrape_budget_local.main([])),
+        ("1/4: Federal", lambda: scrape_budget_federal.run(args)),
+        ("2/4: Federal office spending", lambda: scrape_budget_office_spending.main([])),
+        ("3/4: Provincial/Territorial", lambda: scrape_budget_provincial_territorial.main([])),
+        ("4/4: Local", lambda: scrape_budget_local.main([])),
     ]
     problems = []
     for label, step in steps:
@@ -61,7 +64,7 @@ def main(argv=None):
     if problems:
         print(f"Budget workbook: {budget_workbook_path()} -- these steps failed (see above): {', '.join(problems)}")
         return 1
-    print(f"All three budget tabs updated -> {budget_workbook_path()}")
+    print(f"All four budget tabs updated -> {budget_workbook_path()}")
     return 0
 
 

@@ -1276,17 +1276,17 @@ def write_master_tab(path, sheet_name, tab_rows, changelog_rows):
 
 # --- Shared multi-tab budget workbook (federal / provincial / local) -------
 #
-# MASTER_CANADA_POLITICIAN_BUDGET.xlsx holds one tab per level of
-# government (Federal, Provincial_Territorial, Local) plus a Notes tab.
-# Three separate scripts (scrape_budget_federal.py,
-# scrape_budget_provincial_territorial.py, scrape_budget_local.py) each
-# own exactly one data tab. write_budget_tab() below rewrites only the
-# tab it's given and upserts that category's row in Notes -- every other
-# tab in the workbook is loaded and re-saved untouched, so the three
-# scripts can run in any order, independently, without wiping out each
-# other's data.
+# MASTER_CANADA_POLITICIAN_BUDGET.xlsx holds one campaign-funding tab per
+# level of government (Federal, Provincial_Territorial, Local), MPs'
+# office spending (Federal_Office_Spending) and a Notes tab. Each budget
+# script (scrape_budget_federal.py, scrape_budget_office_spending.py,
+# scrape_budget_provincial_territorial.py, scrape_budget_local.py) owns
+# exactly one data tab. write_budget_tab() below rewrites only the tab
+# it's given and upserts that tab's row in Notes -- every other tab in
+# the workbook is loaded and re-saved untouched, so the scripts can run
+# in any order, independently, without wiping out each other's data.
 
-BUDGET_TAB_ORDER = ["Federal", "Provincial_Territorial", "Local", "Notes"]
+BUDGET_TAB_ORDER = ["Federal", "Federal_Office_Spending", "Provincial_Territorial", "Local", "Notes"]
 
 
 def _upsert_notes_row(wb, category, note_text):
