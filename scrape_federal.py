@@ -27,6 +27,7 @@ import argparse
 import os
 import sys
 
+from changes_digest import report_run
 from represent_common import (
     FEDERAL_FIELDS,
     FetchError,
@@ -95,6 +96,7 @@ def main(argv=None):
         category_complete=not result.failed_sets,
     )
     print(f"Master workbook: {len(changes)} change(s) recorded this run.")
+    report_run(changes)
 
     print(f"Done. {len(rows)} federal politician(s) saved to {out_dir}")
     return 0

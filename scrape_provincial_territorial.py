@@ -24,6 +24,7 @@ import argparse
 import os
 import sys
 
+from changes_digest import report_run
 from represent_common import (
     FetchError,
     PROVINCES_AND_TERRITORIES,
@@ -104,6 +105,7 @@ def main(argv=None):
         category_complete=not result.failed_sets,
     )
     print(f"Master workbook: {len(changes)} change(s) recorded this run.")
+    report_run(changes)
 
     print(f"Done. {len(all_rows)} provincial/territorial politician(s) saved to {out_dir}")
     if result.failed_sets:
