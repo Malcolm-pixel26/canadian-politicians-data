@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+
+# PyInstaller (build_exes.bat)
+build/
+dist/
+*.spec
+
+# Output, if --output-dir points inside the repo
+output/

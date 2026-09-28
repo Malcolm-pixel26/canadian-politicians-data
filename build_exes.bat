@@ -34,6 +34,7 @@ pyinstaller --onefile --name budget_scrapers ^
     --hidden-import scrape_budget_provincial_territorial ^
     --hidden-import scrape_budget_local ^
     --hidden-import scrape_all_budgets ^
+    --hidden-import budget_common ^
     --hidden-import represent_common ^
     cli_budgets.py
 if errorlevel 1 goto :error

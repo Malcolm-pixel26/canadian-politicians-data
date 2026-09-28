@@ -21,27 +21,31 @@ Usage (once compiled: budget_scrapers.exe <subcommand> ...):
     budget_scrapers all
     budget_scrapers all --refresh --since 2015
 
+Add --help after any subcommand to see its options, e.g.
+    budget_scrapers federal --help
+
 Run with no arguments (or an unrecognized one) to see this list again.
 """
 import sys
 import traceback
 
-COMMANDS = ("federal", "provincial", "local", "all")
+COMMANDS = ("federal", "provincial", "provincial_territorial", "local", "all")
 
 
 def _run(command):
+    """Run one subcommand; returns its exit code."""
     if command == "federal":
         import scrape_budget_federal
-        scrape_budget_federal.main()
-    elif command == "provincial":
+        return scrape_budget_federal.main()
+    elif command in ("provincial", "provincial_territorial"):
         import scrape_budget_provincial_territorial
-        scrape_budget_provincial_territorial.main()
+        return scrape_budget_provincial_territorial.main()
     elif command == "local":
         import scrape_budget_local
-        scrape_budget_local.main()
+        return scrape_budget_local.main()
     elif command == "all":
         import scrape_all_budgets
-        scrape_all_budgets.main()
+        return scrape_all_budgets.main()
 
 
 def main():
@@ -60,7 +64,7 @@ def main():
     # double-clicked frozen .exe closes its console the instant it exits,
     # so a mid-run error would otherwise flash and vanish unread.
     try:
-        _run(command)
+        exit_code = _run(command) or 0
     except Exception:
         print("\n*** The run failed with an error: ***\n")
         traceback.print_exc()
@@ -68,6 +72,7 @@ def main():
         sys.exit(1)
 
     _pause_if_frozen()
+    sys.exit(exit_code)
 
 
 def _pause_if_frozen():

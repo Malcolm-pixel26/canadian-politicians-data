@@ -40,33 +40,30 @@ Usage:
     python3 scrape_budget_provincial_territorial.py
     python3 scrape_budget_provincial_territorial.py --province ontario   # once a fetcher exists for it
 """
+import argparse
 import sys
 
-from represent_common import (
-    get_output_dir,
-    get_master_path,
-    read_master_tab,
-    normalize_name,
-    write_budget_tab,
+from budget_common import (
+    BUDGET_FIELDS,
+    OUTPUT_FILENAME,
+    build_budget_rows as _build_budget_rows,
+    collect_from_fetchers,
+    read_master_politicians,
+    write_budget_rows,
 )
+from represent_common import add_common_args, apply_common_args
 
-OUTPUT_FILENAME = "MASTER_CANADA_POLITICIAN_BUDGET.xlsx"
 SHEET_NAME = "Provincial_Territorial"
-
-# Shared column layout across all three budget tabs (Federal,
-# Provincial_Territorial, Local) so the tabs are easy to compare.
-FIELDS = [
-    "name", "category", "party_name", "representative_set",
-    "recipient_type", "total_contributions", "contribution_count",
-    "avg_contribution", "match_status",
-]
+FIELDS = BUDGET_FIELDS
 
 # --- Extension point --------------------------------------------------------
 # Each entry maps a province/territory slug to a fetcher function that
-# takes no arguments and returns a dict shaped exactly like
-# aggregate_contributions() in scrape_budget_federal.py: keyed by
-# normalize_name(recipient) -> {raw_recipient_name, recipient_type,
-# total_contributions, contribution_count}.
+# takes no arguments and returns a "contribution totals" dict, shaped
+# exactly like aggregate_contributions() in scrape_budget_federal.py and
+# described in budget_common.py: keyed by normalize_name(recipient) ->
+# {raw_recipient_name, recipient_type, total_contributions,
+# contribution_count, ...}. Include first_name/last_name per entry if the
+# source has them -- matching against master.xlsx is more forgiving then.
 #
 # None are implemented yet -- each province/territory needs its own
 # fetcher written and tested against its real disclosure site before it
@@ -85,6 +82,8 @@ PROVINCE_FETCHERS = {
     # "ontario": fetch_ontario_contributions,
 }
 
+NOT_COVERED_STATUS = "not covered (no data source configured for this province/territory yet)"
+
 NOTES_TEXT = (
     "Provincial/territorial campaign-finance disclosure is run separately "
     "by each of the 10 provinces + 3 territories, in different formats, "
@@ -102,98 +101,33 @@ def build_budget_rows(only_province=None):
     """
     Merge aggregated contribution totals (if any fetchers are
     configured) with the provincial/territorial politicians in the
-    existing master.xlsx, matched by normalized name. Every
-    provincial/territorial politician in master.xlsx appears in the
-    output, even with no funding source configured yet.
+    existing master.xlsx. Every provincial/territorial politician in
+    master.xlsx appears in the output, even with no funding source
+    configured yet.
     """
-    master_path = get_master_path()
-    master_rows = read_master_tab(master_path, "Provincial_Territorial")
-
-    contribution_totals = {}
-    if only_province:
-        fetcher = PROVINCE_FETCHERS.get(only_province)
-        if not fetcher:
-            configured = sorted(PROVINCE_FETCHERS) or "none configured yet"
-            raise SystemExit(
-                f"No fetcher configured for '{only_province}'. Configured: {configured}"
-            )
-        print(f"Fetching {only_province}...")
-        contribution_totals = fetcher()
-    elif PROVINCE_FETCHERS:
-        for slug, fetcher in PROVINCE_FETCHERS.items():
-            print(f"Fetching {slug}...")
-            contribution_totals.update(fetcher())
-
-    budget_rows = []
-    matched_keys = set()
-
-    for row in master_rows.values():
-        key = normalize_name(row.get("name", ""))
-        contrib = contribution_totals.get(key)
-        entry = {
-            "name": row.get("name", ""),
-            "category": row.get("category", ""),
-            "party_name": row.get("party_name", ""),
-            "representative_set": row.get("representative_set", ""),
-        }
-        if contrib:
-            matched_keys.add(key)
-            count = contrib["contribution_count"]
-            total = contrib["total_contributions"]
-            entry.update({
-                "recipient_type": contrib.get("recipient_type", ""),
-                "total_contributions": round(total, 2),
-                "contribution_count": count,
-                "avg_contribution": round(total / count, 2) if count else 0,
-                "match_status": "matched",
-            })
-        else:
-            entry.update({
-                "recipient_type": "",
-                "total_contributions": "",
-                "contribution_count": "",
-                "avg_contribution": "",
-                "match_status": (
-                    "not covered (no data source configured for this "
-                    "province/territory yet)"
-                ),
-            })
-        budget_rows.append(entry)
-
-    # Recipients from a configured fetcher that never matched anyone in
-    # master.xlsx (e.g. a party entity rather than an individual) --
-    # keep them too, so no funding data silently disappears.
-    for key, contrib in contribution_totals.items():
-        if key in matched_keys:
-            continue
-        count = contrib["contribution_count"]
-        total = contrib["total_contributions"]
-        budget_rows.append({
-            "name": contrib["raw_recipient_name"],
-            "category": "",
-            "party_name": "",
-            "representative_set": "",
-            "recipient_type": contrib.get("recipient_type", ""),
-            "total_contributions": round(total, 2),
-            "contribution_count": count,
-            "avg_contribution": round(total / count, 2) if count else 0,
-            "match_status": "unmatched recipient (not in master.xlsx)",
-        })
-
-    return budget_rows
+    totals = {}
+    if only_province or PROVINCE_FETCHERS:
+        totals = collect_from_fetchers(PROVINCE_FETCHERS, only_province, kind="province/territory")
+    return _build_budget_rows(read_master_politicians("Provincial_Territorial"), totals, NOT_COVERED_STATUS)
 
 
-def parse_args(argv):
-    only_province = None
-    if "--province" in argv:
-        idx = argv.index("--province")
-        if idx + 1 < len(argv):
-            only_province = argv[idx + 1].strip().lower()
-    return only_province
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(
+        description="Write the Provincial_Territorial tab of MASTER_CANADA_POLITICIAN_BUDGET.xlsx."
+    )
+    parser.add_argument(
+        "--province",
+        metavar="SLUG",
+        type=lambda s: s.strip().lower(),
+        help="only run this province/territory's fetcher (once one exists), e.g. --province ontario",
+    )
+    add_common_args(parser)
+    return parser.parse_args(argv)
 
 
-def main():
-    only_province = parse_args(sys.argv[1:])
+def main(argv=None):
+    args = parse_args(argv)
+    apply_common_args(args)
 
     print("=== Provincial/territorial political financing tracker ===")
     if not PROVINCE_FETCHERS:
@@ -203,12 +137,11 @@ def main():
             "everyone. See PROVINCE_FETCHERS in this file to add one."
         )
 
-    budget_rows = build_budget_rows(only_province=only_province)
-
-    out_path = f"{get_output_dir()}/{OUTPUT_FILENAME}"
-    write_budget_tab(out_path, SHEET_NAME, FIELDS, budget_rows, "Provincial_Territorial", NOTES_TEXT)
+    budget_rows = build_budget_rows(only_province=args.province)
+    out_path = write_budget_rows(SHEET_NAME, budget_rows, NOTES_TEXT)
     print(f"Done. {len(budget_rows)} row(s) saved to {out_path}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

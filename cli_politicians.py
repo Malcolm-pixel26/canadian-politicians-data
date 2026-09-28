@@ -21,30 +21,34 @@ Usage (once compiled: politician_scrapers.exe <subcommand> ...):
     politician_scrapers lookup "Jane Doe" --live --category federal
     politician_scrapers lookup "Jane Doe" --live --category local --place Toronto
 
+Add --help after any subcommand to see its options, e.g.
+    politician_scrapers local --help
+
 Run with no arguments (or an unrecognized one) to see this list again.
 """
 import sys
 import traceback
 
-COMMANDS = ("federal", "provincial", "local", "all", "lookup")
+COMMANDS = ("federal", "provincial", "provincial_territorial", "local", "all", "lookup")
 
 
 def _run(command):
+    """Run one subcommand; returns its exit code."""
     if command == "federal":
         import scrape_federal
-        scrape_federal.main()
-    elif command == "provincial":
+        return scrape_federal.main()
+    elif command in ("provincial", "provincial_territorial"):
         import scrape_provincial_territorial
-        scrape_provincial_territorial.main()
+        return scrape_provincial_territorial.main()
     elif command == "local":
         import scrape_local
-        scrape_local.main()
+        return scrape_local.main()
     elif command == "all":
         import scrape_all
-        scrape_all.main()
+        return scrape_all.main()
     elif command == "lookup":
         import lookup_politician
-        lookup_politician.main()
+        return lookup_politician.main()
 
 
 def main():
@@ -66,7 +70,7 @@ def main():
     # flashes its traceback and disappears before it can be read, and it
     # just looks like the run silently stopped early / produced no data.
     try:
-        _run(command)
+        exit_code = _run(command) or 0
     except Exception:
         print("\n*** The run failed with an error: ***\n")
         traceback.print_exc()
@@ -74,6 +78,7 @@ def main():
         sys.exit(1)
 
     _pause_if_frozen()
+    sys.exit(exit_code)
 
 
 def _pause_if_frozen():

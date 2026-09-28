@@ -11,37 +11,39 @@ It also upserts these rows into the shared, persistent workbook:
 
     ~/Desktop/output/master.xlsx   (tabs: "Local", "Changelog" -- other tabs untouched)
 
-NOTE: Represent tracks several hundred municipal councils across
-Canada. This script has to make one API request per council (plus
-extra requests for councils with many members), so it can take
-10-20+ minutes to run and will print progress as it goes. It respects
-Represent's free-tier rate limit (60 requests/minute).
+Represent tracks about 108 municipal councils (roughly 3,000 people).
+They're downloaded in bulk -- a handful of requests in total, well under
+Represent's free-tier rate limit -- so a full run takes seconds, not the
+10-20 minutes the one-request-per-council approach used to.
 
 Usage:
     python3 scrape_local.py
 
-Optional: limit to municipalities whose name contains a keyword, e.g.
-to only grab Ontario municipalities (whose Represent set names contain
-"City Council", "Town Council", etc. and are typically prefixed with
-the municipality name -- filtering isn't province-aware in the API, so
-this is a simple substring filter over the set name):
+Optional: limit to councils whose name contains a keyword, and/or to
+one province or territory (two-letter code):
 
     python3 scrape_local.py --filter Toronto
+    python3 scrape_local.py --province QC
 
-NOTE ON THE MASTER FILE: if you use --filter, only councils matching
-the filter are compared against the master for "removed" detection --
-councils outside the filter are left untouched, since this run never
-saw them.
+NOTE ON THE MASTER FILE: if you use --filter or --province, only the
+councils that match are compared against the master for "removed"
+detection -- councils outside the filter are left untouched, since this
+run never saw them.
 """
+import argparse
 import os
 import sys
+
 from represent_common import (
-    fetch_all_representative_sets,
-    fetch_representatives_by_url,
-    flatten_representative,
-    classify_set,
-    get_output_dir,
+    FetchError,
+    PROVINCES_AND_TERRITORIES,
+    add_common_args,
+    apply_common_args,
+    explain_fetch_error,
+    fetch_category,
     get_master_path,
+    get_output_dir,
+    province_for_set,
     upsert_master,
     write_csv,
     write_json,
@@ -49,64 +51,84 @@ from represent_common import (
 )
 
 
-def parse_filter_arg():
-    if "--filter" in sys.argv:
-        idx = sys.argv.index("--filter")
-        if idx + 1 < len(sys.argv):
-            return sys.argv[idx + 1].lower()
-    return None
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(
+        description="Scrape Canada's municipal councillors and mayors from the Represent API."
+    )
+    parser.add_argument(
+        "--filter",
+        metavar="TEXT",
+        help="only councils whose name contains TEXT (case-insensitive), e.g. --filter Toronto",
+    )
+    parser.add_argument(
+        "--province",
+        metavar="CODE",
+        type=str.upper,
+        choices=sorted(PROVINCES_AND_TERRITORIES),
+        help="only councils in this province/territory, e.g. --province ON",
+    )
+    add_common_args(parser)
+    return parser.parse_args(argv)
 
 
-def main():
+def main(argv=None):
+    args = parse_args(argv)
+    apply_common_args(args)
+
     print("=== Local / municipal politician scraper ===")
-    name_filter = parse_filter_arg()
+    name_filter = args.filter.lower() if args.filter else None
     if name_filter:
         print(f"Filtering to representative-sets containing: {name_filter!r}")
+    if args.province:
+        print(f"Filtering to councils in: {PROVINCES_AND_TERRITORIES[args.province]}")
 
-    all_sets = fetch_all_representative_sets()
-    local_sets = [s for s in all_sets if classify_set(s) == "local"]
+    def wanted(rep_set):
+        if name_filter and name_filter not in rep_set["name"].lower():
+            return False
+        if args.province and province_for_set(rep_set) != args.province:
+            return False
+        return True
 
-    if name_filter:
-        local_sets = [s for s in local_sets if name_filter in s["name"].lower()]
+    narrowed = bool(name_filter or args.province)
+    try:
+        result = fetch_category("local", set_filter=wanted if narrowed else None)
+    except FetchError as e:
+        explain_fetch_error(e)
+        return 1
 
-    if not local_sets:
+    if not result.sets:
         print("No matching local representative-sets found.")
-        return
+        return 1
 
-    print(f"Found {len(local_sets)} local council(s) to scrape.")
+    print(f"Found {len(result.sets)} local council(s) to scrape.")
 
     out_dir = get_output_dir("local")
-    all_rows = []
-
-    for i, rep_set in enumerate(local_sets, start=1):
-        print(f"[{i}/{len(local_sets)}] {rep_set['name']}")
-        reps = fetch_representatives_by_url(
-            rep_set["related"]["representatives_url"], rep_set["name"]
-        )
-        all_rows.extend(flatten_representative(r, "local") for r in reps)
-
-        # Save progress periodically in case a long run gets interrupted
-        # (CSV only here -- cheap to rewrite; the .xlsx is written once at the end)
-        if i % 25 == 0:
-            write_csv(os.path.join(out_dir, "all_local.csv"), all_rows)
-
+    all_rows = result.rows
     write_xlsx(os.path.join(out_dir, "all_local.xlsx"), all_rows, sheet_name="Local")
     write_csv(os.path.join(out_dir, "all_local.csv"), all_rows)
     write_json(os.path.join(out_dir, "all_local.json"), all_rows)
 
-    if name_filter:
+    if narrowed:
         print(
-            "Note: --filter was used, so only matching councils are being "
+            "Note: a filter was used, so only matching councils are being "
             "compared against the master file for this run."
         )
-    attempted_sets = {s["name"] for s in local_sets} if name_filter else None
     changes = upsert_master(
-        get_master_path(), all_rows, category_scope="local", attempted_sets=attempted_sets
+        get_master_path(),
+        all_rows,
+        category_scope="local",
+        attempted_sets=result.fetched_sets,
+        category_complete=not narrowed and not result.failed_sets,
     )
     print(f"Master workbook: {len(changes)} change(s) recorded this run.")
 
     print(f"Done. {len(all_rows)} local politician(s) saved to {out_dir}")
+    if result.failed_sets:
+        print(f"Couldn't download {len(result.failed_sets)} council(s): {', '.join(result.failed_sets)}"
+              f" -- re-run later to pick them up.")
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

@@ -11,146 +11,173 @@ Two modes:
 
        python3 lookup_politician.py "Jane Doe"
 
-2. Live lookup (--live, slower) -- goes straight to the Represent API
-   instead of the cache. You must narrow it with --category, because
-   scanning *all* local councils live for a name match would mean
-   fetching several hundred councils one at a time. federal is fast
-   (one request); provincial_territorial is fast-ish (13 legislatures);
-   local can still take a while even filtered.
+2. Live lookup (--live) -- goes straight to the Represent API instead of
+   the cache. Searching everyone at every level of government takes only
+   a few requests (Represent's bulk download), so --category and --place
+   are optional ways to narrow the results rather than requirements.
 
+       python3 lookup_politician.py "Jane Doe" --live
        python3 lookup_politician.py "Jane Doe" --live --category federal
        python3 lookup_politician.py "Jane Doe" --live --category local --place Toronto
 
-For a federal match, this also pulls OpenParliament enrichment
-(committees, first elected date) live, since that's cheap for a single
-person.
+Names match on word prefixes in any order, ignoring accents and case:
+"Legault", "francois leg" and "LEGAULT François" all find François
+Legault; "Ann" finds "Ann" or "Anne" but not "Joanne".
 
-This only pulls from public sources (Represent, OpenParliament) that
-already publish these people's official, public-facing legislative
-contact info -- it does not search social media, news, or anything
-about their personal/private life.
+For a federal match, this also pulls OpenParliament / House of Commons
+enrichment (committees, first elected date) live, since that's cheap
+for a single person (skip with --no-enrich).
+
+This only pulls from public sources (Represent, OpenParliament, the
+House of Commons) that already publish these people's official,
+public-facing legislative contact info -- it does not search social
+media, news, or anything about their personal/private life.
 """
+import argparse
 import os
 import sys
 
 from represent_common import (
-    get_master_path,
-    read_all_master_rows,
-    normalize_name,
-    fetch_all_representative_sets,
-    fetch_representatives_by_url,
-    flatten_representative,
-    classify_set,
+    FetchError,
+    FEDERAL_ENRICHMENT_FIELDS,
     MASTER_FIELDS,
+    add_common_args,
+    apply_common_args,
+    classify_set,
+    explain_fetch_error,
+    fetch_all_representative_sets,
+    fetch_rows_for_sets,
+    get_master_path,
+    normalize_name,
+    read_all_master_rows,
 )
 
-
-def parse_args(argv):
-    if not argv:
-        print(__doc__)
-        sys.exit(1)
-    name = argv[0]
-    live = "--live" in argv
-    category = None
-    if "--category" in argv:
-        idx = argv.index("--category")
-        if idx + 1 < len(argv):
-            category = argv[idx + 1]
-    place_filter = None
-    if "--place" in argv:
-        idx = argv.index("--place")
-        if idx + 1 < len(argv):
-            place_filter = argv[idx + 1].lower()
-    return name, live, category, place_filter
+CATEGORY_ALIASES = {
+    "federal": "federal",
+    "provincial": "provincial_territorial",
+    "provincial_territorial": "provincial_territorial",
+    "local": "local",
+}
 
 
-def search_cache(name):
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(
+        description="Look up one politician by name, from master.xlsx or live from Represent."
+    )
+    parser.add_argument("name", help='the name to search for, e.g. "Jane Doe"')
+    parser.add_argument("--live", action="store_true", help="query Represent now instead of master.xlsx")
+    parser.add_argument(
+        "--category",
+        type=str.lower,
+        choices=sorted(CATEGORY_ALIASES),
+        help="only this level of government",
+    )
+    parser.add_argument(
+        "--place",
+        metavar="TEXT",
+        help="only legislatures/councils (or districts) whose name contains TEXT, e.g. Toronto",
+    )
+    parser.add_argument("--no-enrich", action="store_true", help="skip live enrichment for federal matches")
+    add_common_args(parser)
+    args = parser.parse_args(argv)
+    args.category = CATEGORY_ALIASES.get(args.category)
+    return args
+
+
+def name_matches(query, name):
+    """Every word of the query starts some word of the name (any order,
+    accents/case/punctuation ignored)."""
+    query_words = normalize_name(query).split()
+    name_words = normalize_name(name).split()
+    return bool(query_words) and all(
+        any(word.startswith(q) for word in name_words) for q in query_words
+    )
+
+
+def _in_place(row, place):
+    place = place.lower()
+    return place in str(row.get("representative_set", "")).lower() or place in str(
+        row.get("district_name", "")
+    ).lower()
+
+
+def search_cache(name, category=None, place=None):
     master_path = get_master_path()
     if not os.path.exists(master_path):
         print(f"No master file found at {master_path} yet -- run a scraper first, "
-              f"or use --live --category <federal|provincial_territorial|local>.")
+              f"or use --live.")
         return []
 
-    existing = read_all_master_rows(master_path)
-    needle = normalize_name(name)
-    matches = [row for row in existing.values() if needle in normalize_name(row.get("name", ""))]
+    matches = [row for row in read_all_master_rows(master_path).values() if name_matches(name, row.get("name", ""))]
+    if category:
+        matches = [row for row in matches if row.get("category") == category]
+    if place:
+        matches = [row for row in matches if _in_place(row, place)]
     return matches
 
 
-def search_live(name, category, place_filter):
-    if category not in ("federal", "provincial_territorial", "local"):
-        print("For --live, pass --category federal|provincial_territorial|local.")
-        sys.exit(1)
-
-    print(f"Fetching representative-sets to search live ({category})...")
-    all_sets = fetch_all_representative_sets()
-    sets_to_search = [s for s in all_sets if classify_set(s) == category]
-
-    if place_filter:
-        sets_to_search = [s for s in sets_to_search if place_filter in s["name"].lower()]
-        if not sets_to_search:
-            print(f"No {category} representative-sets matched --place {place_filter!r}.")
+def search_live(name, category=None, place=None):
+    sets = fetch_all_representative_sets()
+    if category:
+        sets = [s for s in sets if classify_set(s) == category]
+    if place:
+        sets = [s for s in sets if place.lower() in s["name"].lower()]
+        if not sets:
+            print(f"No representative-sets matched --place {place!r}.")
             return []
 
-    if category == "local" and not place_filter:
-        print(
-            f"Warning: searching all {len(sets_to_search)} local councils live -- "
-            f"this can take a while. Consider adding --place <city> to narrow it down."
-        )
-
-    needle = normalize_name(name)
-    matches = []
-    for i, rep_set in enumerate(sets_to_search, start=1):
-        print(f"  [{i}/{len(sets_to_search)}] searching {rep_set['name']}...")
-        reps = fetch_representatives_by_url(rep_set["related"]["representatives_url"], rep_set["name"])
-        for r in reps:
-            if needle in normalize_name(r.get("name", "")):
-                matches.append(flatten_representative(r, category))
-    return matches
+    print(f"Searching {len(sets)} legislature(s)/council(s) live...")
+    result = fetch_rows_for_sets(sets)
+    return [row for row in result.rows if name_matches(name, row.get("name", ""))]
 
 
 def print_match(row):
     print("-" * 60)
     for field in MASTER_FIELDS:
         val = row.get(field, "")
-        if val:
-            print(f"{field.replace('_', ' ').title():>20}: {val}")
+        if val not in ("", None):
+            print(f"{field.replace('_', ' ').title():>22}: {val}")
 
 
-def main():
-    name, live, category, place_filter = parse_args(sys.argv[1:])
+def main(argv=None):
+    args = parse_args(argv)
+    apply_common_args(args)
 
-    if live:
-        matches = search_live(name, category, place_filter)
+    if args.live:
+        try:
+            matches = search_live(args.name, args.category, args.place)
+        except FetchError as e:
+            explain_fetch_error(e)
+            return 1
     else:
-        matches = search_cache(name)
+        matches = search_cache(args.name, args.category, args.place)
 
     if not matches:
-        print(f"No matches for {name!r}.")
-        return
+        print(f"No matches for {args.name!r}.")
+        return 1
 
-    print(f"\nFound {len(matches)} match(es) for {name!r}:")
-    federal_matches = [m for m in matches if m.get("category") == "federal"]
-
+    print(f"\nFound {len(matches)} match(es) for {args.name!r}:")
     for m in matches:
         print_match(m)
 
     # Federal matches are cheap to enrich live, on the spot, since it's
     # just one person rather than the whole House.
-    if federal_matches:
+    federal_matches = [m for m in matches if m.get("category") == "federal"]
+    if federal_matches and not args.no_enrich:
         try:
             from openparliament_enrich import enrich_federal_rows
-            print("\nFetching OpenParliament enrichment for federal match(es)...")
+            print("\nFetching OpenParliament / House of Commons data for federal match(es)...")
             enrich_federal_rows(federal_matches)
             for m in federal_matches:
                 print("-" * 60)
-                print(f"OpenParliament data for {m.get('name')}:")
-                for f in ("openparliament_url", "first_elected", "committees"):
+                print(f"Latest federal data for {m.get('name')}:")
+                for f in FEDERAL_ENRICHMENT_FIELDS:
                     if m.get(f):
-                        print(f"{f.replace('_', ' ').title():>20}: {m[f]}")
+                        print(f"{f.replace('_', ' ').title():>22}: {m[f]}")
         except Exception as e:
-            print(f"  ! OpenParliament enrichment failed: {e}")
+            print(f"  ! Enrichment failed: {e}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
