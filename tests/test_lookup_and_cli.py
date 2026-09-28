@@ -14,6 +14,7 @@ import scrape_budget_federal
 import scrape_budget_local
 import scrape_budget_office_spending
 import scrape_budget_provincial_territorial
+import scrape_careers
 import scrape_federal
 import scrape_local
 import scrape_provincial_territorial
@@ -61,7 +62,7 @@ class CommandLineTests(ScraperTestCase):
         for module in (scrape_federal, scrape_provincial_territorial, scrape_local, scrape_all,
                        lookup_politician, scrape_budget_federal, scrape_budget_provincial_territorial,
                        scrape_budget_local, scrape_all_budgets, scrape_votes, changes_digest, make_maps,
-                       scrape_budget_office_spending):
+                       scrape_budget_office_spending, scrape_careers):
             with self.subTest(module=module.__name__), mock.patch("sys.stderr"):
                 argv = ["Jane", "--filtr", "x"] if module is lookup_politician else ["--filtr", "x"]
                 with self.assertRaises(SystemExit) as ctx:
@@ -92,7 +93,8 @@ class CommandLineTests(ScraperTestCase):
 
     def test_new_subcommands_are_dispatched(self):
         cases = (("votes", scrape_votes, cli_politicians), ("digest", changes_digest, cli_politicians),
-                 ("maps", make_maps, cli_politicians), ("spending", scrape_budget_office_spending, cli_budgets),
+                 ("maps", make_maps, cli_politicians), ("careers", scrape_careers, cli_politicians),
+                 ("spending", scrape_budget_office_spending, cli_budgets),
                  ("office_spending", scrape_budget_office_spending, cli_budgets))
         for command, module, cli in cases:
             with self.subTest(command=command), mock.patch.object(module, "main", return_value=0) as fake, \

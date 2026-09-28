@@ -2,9 +2,9 @@
 """
 Single entry point that bundles scrape_federal.py,
 scrape_provincial_territorial.py, scrape_local.py, scrape_all.py,
-lookup_politician.py, scrape_votes.py, changes_digest.py and
-make_maps.py into one program -- meant to be compiled into one Windows
-.exe with PyInstaller (see build_exes.bat).
+lookup_politician.py, scrape_votes.py, scrape_careers.py,
+changes_digest.py and make_maps.py into one program -- meant to be
+compiled into one Windows .exe with PyInstaller (see build_exes.bat).
 
 Whichever underlying script you want to run is picked with a
 subcommand as the first argument; everything after that is passed
@@ -24,9 +24,12 @@ Usage (once compiled: politician_scrapers.exe <subcommand> ...):
     politician_scrapers lookup --postal-code "K1A 0A6"
     politician_scrapers votes
     politician_scrapers votes --bill C-30 --activity
+    politician_scrapers careers
+    politician_scrapers careers --mp Poilievre
     politician_scrapers digest --days 7
     politician_scrapers maps
     politician_scrapers maps --level local --province ON
+    politician_scrapers maps --colour-by spending
 
 Add --help after any subcommand to see its options, e.g.
     politician_scrapers local --help
@@ -36,7 +39,8 @@ Run with no arguments (or an unrecognized one) to see this list again.
 import sys
 import traceback
 
-COMMANDS = ("federal", "provincial", "provincial_territorial", "local", "all", "lookup", "votes", "digest", "maps")
+COMMANDS = ("federal", "provincial", "provincial_territorial", "local", "all", "lookup", "votes", "careers",
+            "digest", "maps")
 
 
 def _run(command):
@@ -59,6 +63,9 @@ def _run(command):
     elif command == "votes":
         import scrape_votes
         return scrape_votes.main()
+    elif command == "careers":
+        import scrape_careers
+        return scrape_careers.main()
     elif command == "digest":
         import changes_digest
         return changes_digest.main()

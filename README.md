@@ -58,9 +58,13 @@ written up in [docs/IMPROVEMENTS.md](docs/IMPROVEMENTS.md).
   new faces, party switches, contact changes) over any period.
 - `scrape_votes.py`: how every MP voted in a session of the House of
   Commons, with per-MP statistics.
+- `scrape_careers.py`: every MP's career from the House of Commons:
+  terms, party history, offices such as minister, committees and every
+  election they ran in.
 - `make_maps.py`: maps of every riding, ward and district with the
   people who represent it, as a double-clickable web page, GeoJSON for
-  QGIS and KML for Google My Maps.
+  QGIS and KML for Google My Maps. Federal ridings can also be shaded
+  by MPs' office spending or voting attendance.
 - `scrape_budget_federal.py`: federal campaign contribution totals per
   politician, from Elections Canada's public political financing data.
   Writes the **Federal** tab of `MASTER_CANADA_POLITICIAN_BUDGET.xlsx`.
@@ -112,7 +116,9 @@ than silently ignored.
 | `python3 lookup_politician.py --postal-code "K1A 0A6"` | everyone who represents that postal code, at every level of government |
 | `python3 changes_digest.py --days 7` | a report of everything that changed in the last 7 days |
 | `python3 scrape_votes.py --bill C-30` | how every MP voted on a bill (leave out `--bill` for the whole session) |
+| `python3 scrape_careers.py --mp Poilievre` | one MP's career: terms, parties, offices, committees, elections (leave out `--mp` for every MP) |
 | `python3 make_maps.py --level federal` | a map of every riding and its MP: web page, GeoJSON for QGIS, KML for Google My Maps |
+| `python3 make_maps.py --colour-by spending` | the federal map shaded by each MP's office spending (or `attendance`) |
 | `python3 scrape_budget_office_spending.py --fiscal-year 2024-2025` | each MP's office spending for one fiscal year (default: the latest four quarters) |
 
 A full run is quick. The local scraper downloads all ~3,800
@@ -145,8 +151,11 @@ politician_scrapers.exe lookup --postal-code "K1A 0A6"
 politician_scrapers.exe digest --days 7
 politician_scrapers.exe votes
 politician_scrapers.exe votes --bill C-30 --activity
+politician_scrapers.exe careers
+politician_scrapers.exe careers --mp Poilievre
 politician_scrapers.exe maps
 politician_scrapers.exe maps --level local --province ON
+politician_scrapers.exe maps --colour-by spending
 
 budget_scrapers.exe federal
 budget_scrapers.exe federal --refresh
@@ -189,6 +198,7 @@ variable, to put it anywhere else.
     federal_map.kml                  <- for Google My Maps / Google Earth
     provincial_territorial_map.*     (same three files per level)
     local_map.*
+    federal_map_spending.*           <- with --colour-by spending (or _attendance)
   federal/
     federal_mps.xlsx
     federal_mps.csv
@@ -196,6 +206,8 @@ variable, to put it anywhere else.
     votes_45-1.xlsx                  <- from scrape_votes.py (45-1 = the session)
     votes_45-1_summary.csv
     votes_45-1_ballots.csv
+    mp_careers.xlsx                  <- from scrape_careers.py
+    mp_careers_summary.csv
     mp_office_spending_by_quarter.csv  <- from scrape_budget_office_spending.py
   provincial_territorial/
     all_provincial_territorial.xlsx
@@ -307,8 +319,9 @@ Names match on word prefixes in any order, ignoring accents and case.
 "Legault", "francois leg" and "LEGAULT François" all find François
 Legault; "Ann" finds Ann or Anne but not Joanne. Federal matches also
 get OpenParliament / House of Commons enrichment pulled live
-(committees, first elected date), since that's cheap for a single
-person (`--no-enrich` skips it).
+(committees, first elected date) and a short career summary from
+`scrape_careers.py` (years served, elections, offices), since that's
+cheap for a single person (`--no-enrich` skips it).
 
 ### Who represents a postal code?
 
@@ -406,6 +419,41 @@ votes don't change, so each vote is cached under `output/_cache/` and
 later runs only fetch new ones. `--activity` counts speeches one MP at
 a time and adds roughly 10–20 minutes for the whole House.
 
+## `scrape_careers.py`: MP career histories
+
+```bash
+python3 scrape_careers.py                   # every current MP: about three minutes
+python3 scrape_careers.py --mp Poilievre    # just the MPs whose name matches (repeat for several)
+```
+
+This reads each MP's "Roles - Current and Past" page on ourcommons.ca
+and writes `output/federal/mp_careers.xlsx`:
+
+- **Summary**, one row per MP:
+  - first elected, years as an MP and the number of Parliaments;
+  - every riding they've represented;
+  - elections won and lost;
+  - party history, e.g. "Conservative → Liberal", and the number of
+    changes. Mergers count too, like Canadian Alliance → Conservative;
+  - current and past offices, with counts of minister and
+    parliamentary-secretary posts;
+  - current committees, how many committees they've served on, and
+    parliamentary associations.
+- **Terms, Parties, Offices, Committees, Associations, Elections**: the
+  full lists behind the summary, one row per entry. A blank End date
+  means they still hold it.
+
+A summary CSV comes too (`mp_careers_summary.csv`). A run limited with
+`--mp` adds the names to the file names, so it never overwrites the
+whole-House files, and prints the summary on screen. It takes one page
+per MP at the House of Commons' polite rate.
+
+The House also offers these histories as an XML export, but that
+export's address and fields aren't documented well enough to rely on,
+so the script reads the page itself, finding each table by its column
+headings. A page without the Member of Parliament table, which every
+MP's page has, is reported rather than half-read.
+
 ## `make_maps.py`: riding maps
 
 ```bash
@@ -414,6 +462,8 @@ python3 make_maps.py --level federal
 python3 make_maps.py --level provincial --province QC
 python3 make_maps.py --level local --filter Toronto
 python3 make_maps.py --refresh                         # re-download the district shapes too
+python3 make_maps.py --colour-by spending              # federal ridings shaded by MP office spending
+python3 make_maps.py --colour-by attendance            # ... or by voting attendance
 ```
 
 Each map joins every district's boundary with the people who represent
@@ -443,6 +493,23 @@ it, and is written three ways to `output/maps/`:
 Federal and provincial maps are coloured by party, with a key showing
 each party's seats. Local maps are coloured by council, since few
 councillors run under a party banner.
+
+`--colour-by` shades the federal map by a number instead:
+
+- `spending`: each MP's office spending, read from what
+  `scrape_budget_office_spending.py` last wrote;
+- `attendance`: the share of recorded votes each MP took part in,
+  counting Yes, No or paired, from the newest whole-session summary
+  `scrape_votes.py` wrote.
+
+So run that script first. MPs are matched to its file by name, the
+same way the budget workbook matches them. The ridings are split into
+five shades of blue with about as many ridings in each, and the key
+shows each shade's range and the period or session. A riding with no
+figure for its MP is grey with a dashed outline. Each MP's figure is
+in their popup, and in a column of the GeoJSON and KML. These maps are
+saved as `federal_map_spending.*` or `federal_map_attendance.*`, so the
+party map isn't replaced.
 
 The shapes are the simplified "simple shapes" Represent publishes for
 web maps. Each boundary set is downloaded in one go where Represent
