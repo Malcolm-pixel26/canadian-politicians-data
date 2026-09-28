@@ -492,6 +492,39 @@ def fetch_category(category, set_filter=None):
     return fetch_rows_for_sets(sets, category)
 
 
+# --- Finding representatives by location ------------------------------------
+
+# Letter-digit-letter digit-letter-digit, never using D, F, I, O, Q or U,
+# and W or Z only after the first character.
+_POSTAL_CODE_RE = re.compile(r"[ABCEGHJ-NPRSTVXY]\d[ABCEGHJ-NPRSTV-Z]\d[ABCEGHJ-NPRSTV-Z]\d")
+
+
+def normalize_postal_code(value):
+    """"k1a 0a6" -> "K1A0A6" (the form Represent expects), or None if it
+    isn't a valid Canadian postal code."""
+    code = re.sub(r"[\s-]+", "", value or "").upper()
+    return code if _POSTAL_CODE_RE.fullmatch(code) else None
+
+
+def fetch_postal_code(code):
+    """
+    Represent's record for one (normalized) postal code: its city and
+    province, plus two lists of representatives. "representatives_centroid"
+    are those whose district contains the postal code's centre point;
+    "representatives_concordance" are those linked to it in official
+    government data. A postal code can straddle districts, so Represent's
+    docs say to check both (either key may be missing when empty).
+    """
+    return http_get_json(f"{BASE_URL}/postcodes/{code}/")
+
+
+def fetch_representatives_at_point(latitude, longitude):
+    """Every representative whose district contains this exact point --
+    unlike a postal code, a point is never ambiguous."""
+    reps, _ = _fetch_paginated(f"{BASE_URL}/representatives/?point={latitude},{longitude}&limit=1000")
+    return reps
+
+
 def normalize_name(name):
     """
     Lowercase, strip accents/punctuation, and collapse whitespace so names
@@ -709,6 +742,15 @@ def _write_text_file(path, write):
     return _replace_file(tmp, path)
 
 
+def write_text_file(path, text):
+    """Write a UTF-8 text file atomically (see _replace_file)."""
+    def write(tmp):
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(text)
+
+    return _write_text_file(path, write)
+
+
 def write_csv(path, rows, fields=None):
     """Write `fields` (default CSV_FIELDS) of each row to a CSV file. Other
     keys on the rows are ignored -- they used to crash the run."""
@@ -747,20 +789,22 @@ def _sheet_title(name):
     return title[:31] or "Sheet"
 
 
-def _write_rows_to_sheet(ws, fields, rows):
+def _write_rows_to_sheet(ws, fields, rows, headers=None, freeze="A2"):
     """Bold header, frozen top row, autofilter, rough column widths -- the
-    formatting every workbook in this project shares."""
+    formatting every workbook in this project shares. `headers` overrides
+    the header text derived from the field names."""
     from openpyxl.styles import Font
     from openpyxl.utils import get_column_letter
 
     header_font = Font(name="Arial", bold=True)
     body_font = Font(name="Arial")
 
-    for col_idx, field in enumerate(fields, start=1):
-        cell = ws.cell(row=1, column=col_idx, value=header_for_field(field))
+    headers = headers or [header_for_field(field) for field in fields]
+    for col_idx, header in enumerate(headers, start=1):
+        cell = ws.cell(row=1, column=col_idx, value=header)
         cell.font = header_font
 
-    widths = [len(field) for field in fields]
+    widths = [len(header) for header in headers]
     for row_idx, row in enumerate(rows, start=2):
         for col_idx, field in enumerate(fields, start=1):
             value = row.get(field, "")
@@ -775,7 +819,7 @@ def _write_rows_to_sheet(ws, fields, rows):
             if value != "":
                 widths[col_idx - 1] = max(widths[col_idx - 1], len(str(value)))
 
-    ws.freeze_panes = "A2"
+    ws.freeze_panes = freeze
     if rows:
         ws.auto_filter.ref = f"A1:{get_column_letter(len(fields))}{len(rows) + 1}"
     for col_idx, width in enumerate(widths, start=1):
@@ -845,6 +889,24 @@ def write_xlsx(path, rows, sheet_name="Representatives", fields=None):
     _write_rows_to_sheet(ws, fields or CSV_FIELDS, rows)
     final = _save_workbook(wb, path)
     print(f"Wrote {len(rows)} row(s) -> {final}")
+    return final
+
+
+def write_workbook(path, sheets):
+    """
+    Write a formatted multi-sheet .xlsx. `sheets` is a list of dicts with
+    "title", "fields", "rows" and optionally "headers" (header text, one
+    per field) and "freeze" (the cell to freeze panes at, default "A2").
+    """
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    wb.remove(wb.active)
+    for sheet in sheets:
+        ws = wb.create_sheet(_sheet_title(sheet["title"]))
+        _write_rows_to_sheet(ws, sheet["fields"], sheet["rows"], sheet.get("headers"), sheet.get("freeze", "A2"))
+    final = _save_workbook(wb, path)
+    print(f"Wrote {len(sheets)} sheet(s) -> {final}")
     return final
 
 
