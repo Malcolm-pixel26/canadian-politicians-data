@@ -309,8 +309,27 @@ def enrich_and_print_federal(rows):
             for f in FEDERAL_ENRICHMENT_FIELDS:
                 if m.get(f):
                     print(f"{f.replace('_', ' ').title():>22}: {m[f]}")
+            print_career(m)
     except Exception as e:
         print(f"  ! Enrichment failed: {e}")
+
+
+def print_career(row):
+    """A few lines on the MP's career from their House of Commons roles
+    page (one request)."""
+    from openparliament_enrich import house_of_commons_id
+    from scrape_careers import career_lines, fetch_career, summarize  # it imports this module
+
+    if not house_of_commons_id(row.get("url")):
+        return
+    try:
+        lines = career_lines(summarize(fetch_career(row["url"])))
+    except (FetchError, ValueError) as e:
+        print(f"{'Career':>22}: unavailable ({e})")
+        return
+    print(f"{'Career':>22}: {lines[0]}")
+    for line in lines[1:]:
+        print(f"{'':>22}  {line}")
 
 
 def main(argv=None):

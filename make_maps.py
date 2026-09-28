@@ -43,6 +43,7 @@ Canada's Canada Base Map from the internet; the districts and people
 are inside the file itself.
 """
 import argparse
+import csv
 import html
 import json
 import math
@@ -52,10 +53,12 @@ import sys
 import time
 import urllib.parse
 import zlib
-from collections import Counter
+from collections import Counter, namedtuple
 from datetime import date
 from xml.sax.saxutils import escape, quoteattr
 
+import scrape_budget_office_spending as office_spending
+from budget_common import match_to_master
 from lookup_politician import HEAD_OF_COUNCIL_WORDS
 from represent_common import (
     BASE_URL,
@@ -388,9 +391,9 @@ def _joined(values):
     return "; ".join(seen)
 
 
-def _rep_for_page(row):
+def _rep_for_page(row, measure=None):
     """What the HTML map's popups show about one person."""
-    return {
+    page = {
         "name": row["name"],
         "office": row["elected_office"],
         "party": row["party_name"],
@@ -400,15 +403,20 @@ def _rep_for_page(row):
         "url": row["url"] or row["personal_url"],
         "photo": row["photo_url"],
     }
+    if measure:
+        page["measure"] = measure.values.get(id(row), (None, f"{measure.title.capitalize()}: no data found"))[1]
+    return page
 
 
-def build_features(level, entries, shapes):
+def build_features(level, entries, shapes, measure=None):
     """
     Join people to district shapes. `entries` is a list of (flattened
     representative, boundary url) pairs; `shapes` is what
     fetch_boundary_shapes() returned. Returns (features, unplaced): one
     GeoJSON feature per district, biggest first so they're drawn under the
     smaller districts inside them, and the people who couldn't be placed.
+    With a `measure`, each district also gets its value (colour_by_measure()
+    then does the colouring).
     """
     by_boundary = {}
     unplaced = []
@@ -461,12 +469,17 @@ def build_features(level, entries, shapes):
             "stroke": "#333333",
             "stroke-width": 1,
         }
+        value = None
+        if measure:
+            value = next((measure.values[id(r)][0] for r in rows if id(r) in measure.values), None)
+            properties[measure.key] = value
         features.append({
             "type": "Feature",
             "properties": properties,
             "geometry": {"type": "MultiPolygon", "coordinates": polygons},
-            "_reps": [_rep_for_page(r) for r in rows],
+            "_reps": [_rep_for_page(r, measure) for r in rows],
             "_area": _box_area(bounding_box(polygons)),
+            "_value": value,
         })
     features.sort(key=lambda f: -f["_area"])
     return features, unplaced
@@ -485,6 +498,170 @@ def legend_entries(level, rows):
 def describe_unplaced(row):
     where = ", ".join(v for v in (row["elected_office"], row["district_name"], row["representative_set"]) if v)
     return f"{row['name']} ({where})" if where else row["name"]
+
+
+# --- Colouring federal ridings by a measure ---------------------------------------
+#
+# --colour-by shades each riding by a number another script has already
+# downloaded: MPs' office spending (scrape_budget_office_spending.py) or
+# how often they voted (scrape_votes.py). People are matched to those
+# files by name, the same way the budget workbook matches them.
+
+# Five shades of one blue, light to dark (steps 300-700 of the dataviz
+# reference ramp), checked with its validator as an ordinal ramp: each
+# step darker than the last by a visible margin, and the lightest still
+# clear (2:1) of both the map page and a white background.
+MEASURE_COLOURS = ("#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b")
+NO_DATA_COLOUR = "#c3c2b7"
+MEASURE_FILL_OPACITY = 0.85  # see-through fills would shift the shades
+COLOUR_BY_TITLES = {"spending": "office spending", "attendance": "voting attendance"}
+
+# key: the GeoJSON/KML column; title: e.g. "office spending"; description:
+# the key's heading; note: the side panel's explanation; values: {id(row):
+# (number, what the popup says)}; format: number -> text for the key.
+Measure = namedtuple("Measure", "key title description note values format")
+
+
+class MissingData(Exception):
+    """The file a measure reads hasn't been written yet."""
+
+
+def _dollars(value):
+    return f"-${abs(value):,.0f}" if value < 0 else f"${value:,.0f}"
+
+
+def spending_measure(rows):
+    """Each MP's total office spending, from the per-quarter CSV that
+    scrape_budget_office_spending.py writes."""
+    path = os.path.join(get_output_dir("federal"), "mp_office_spending_by_quarter.csv")
+    try:
+        with open(path, encoding="utf-8-sig", newline="") as f:
+            records = list(csv.DictReader(f))
+    except OSError:
+        raise MissingData("No office spending data yet -- run scrape_budget_office_spending.py first.") from None
+    quarter_rows = []
+    for record in records:
+        try:
+            quarter = (int(record["fiscal_year"].split("-")[1]), int(record["quarter"]))
+            amounts = {category: float(record[category] or 0) for category in office_spending.CATEGORIES}
+        except (KeyError, IndexError, ValueError):
+            continue
+        quarter_rows.append((quarter, dict(amounts, name=record.get("name") or "",
+                                           constituency=record.get("constituency") or "",
+                                           caucus=record.get("caucus") or "")))
+    if not quarter_rows:
+        raise MissingData(f"{path} has no spending rows -- run scrape_budget_office_spending.py again.")
+    entries = office_spending.spending_by_person(quarter_rows)
+    values = {}
+    for row, key, _ in match_to_master(rows, entries)[0]:
+        if key:
+            entry = entries[key]
+            total = round(sum(entry[category] for category in office_spending.CATEGORIES), 2)
+            values[id(row)] = (total, f"Office spending: {_dollars(total)} over {len(entry['quarters'])} quarter(s)")
+    period = office_spending.describe_quarters({quarter for quarter, _ in quarter_rows})
+    return Measure(
+        "office_spending", "office spending", f"MP office spending, {period}",
+        "Colours show each MP's office spending (staff salaries, travel, hospitality and contracts) "
+        "from the House of Commons' quarterly reports. Grey: no spending found for the MP.",
+        values, _dollars)
+
+
+_VOTES_SUMMARY_RE = re.compile(r"votes_(\d+)-(\d+)_summary\.csv")
+
+
+def attendance_measure(rows):
+    """Each MP's share of recorded votes they took part in, from the
+    newest whole-session summary scrape_votes.py wrote (not a --bill run)."""
+    folder = get_output_dir("federal")
+    sessions = []
+    for name in os.listdir(folder):
+        match = _VOTES_SUMMARY_RE.fullmatch(name)
+        if match:
+            sessions.append(((int(match.group(1)), int(match.group(2))), name))
+    if not sessions:
+        raise MissingData("No voting records yet -- run scrape_votes.py first (for the whole session, "
+                          "not just --bill).")
+    (parliament, number), name = max(sessions)
+    with open(os.path.join(folder, name), encoding="utf-8-sig", newline="") as f:
+        records = list(csv.DictReader(f))
+    entries, repeated = {}, set()
+    for record in records:
+        try:
+            share = float(record["participation_pct"])
+            took_part = int(record["yes"]) + int(record["no"]) + int(record["paired"])
+            held = int(record["votes"])
+        except (KeyError, ValueError):
+            continue
+        key = normalize_name(record.get("name"))
+        if key in entries:
+            repeated.add(key)
+        entries[key] = {"raw_recipient_name": record["name"], "electoral_districts": [record.get("riding") or ""],
+                        "share": share, "detail": f"{took_part} of {held}"}
+    for key in repeated | {""}:
+        entries.pop(key, None)  # two people with the same name: don't guess which is which
+    values = {id(row): (entries[key]["share"], f"Took part in {entries[key]['share']:g}% of recorded votes "
+                                               f"({entries[key]['detail']})")
+              for row, key, _ in match_to_master(rows, entries)[0] if key}
+    return Measure(
+        "vote_participation", "voting attendance",
+        f"Share of recorded votes taken part in, session {parliament}-{number}",
+        "Colours show the share of the session's recorded votes each MP took part in (voting Yes or No, "
+        "or paired), from OpenParliament. Grey: no voting record found for the MP, e.g. one elected "
+        "since those votes.",
+        values, lambda value: f"{value:g}%")
+
+
+MEASURES = {"spending": spending_measure, "attendance": attendance_measure}
+
+
+def value_classes(values, count=len(MEASURE_COLOURS)):
+    """Split `values` into up to `count` classes of about equal size, so each
+    shade covers about as many ridings, without putting equal values in
+    different classes. Returns [(lowest, highest)], lowest class first."""
+    ordered = sorted(values)
+    classes, start = [], 0
+    for k in range(1, count + 1):
+        end = max(round(len(ordered) * k / count), start)
+        while 0 < end < len(ordered) and ordered[end] == ordered[end - 1]:
+            end += 1
+        if end > start:
+            classes.append((ordered[start], ordered[end - 1]))
+            start = end
+    return classes
+
+
+def _shades(count):
+    """`count` of the MEASURE_COLOURS, spread from light to dark."""
+    if count <= 1:
+        return list(MEASURE_COLOURS[len(MEASURE_COLOURS) // 2:][:count])
+    last = len(MEASURE_COLOURS) - 1
+    return [MEASURE_COLOURS[round(i * last / (count - 1))] for i in range(count)]
+
+
+def colour_by_measure(features, measure):
+    """Shade each district by its class of `measure`, and return the map's
+    key: [(label, colour, number of districts)]."""
+    classes = value_classes([f["_value"] for f in features if f["_value"] is not None])
+    colours = _shades(len(classes))
+    counts = [0] * len(classes)
+    no_data = 0
+    for feature in features:
+        value = feature["_value"]
+        if value is None:
+            colour = NO_DATA_COLOUR
+            feature["_no_data"] = True
+            no_data += 1
+        else:
+            index = next(i for i, (_, highest) in enumerate(classes) if value <= highest)
+            colour = colours[index]
+            counts[index] += 1
+        feature["properties"]["fill"] = colour
+        feature["properties"]["fill-opacity"] = MEASURE_FILL_OPACITY
+    legend = [(measure.format(low) if low == high else f"{measure.format(low)} \u2013 {measure.format(high)}",
+               colour, count) for (low, high), colour, count in zip(classes, colours, counts)]
+    if no_data:
+        legend.append(("No data", NO_DATA_COLOUR, no_data))
+    return legend
 
 
 # --- Writers ----------------------------------------------------------------------
@@ -515,6 +692,10 @@ def _xml_text(value):
     return escape(_XML_ILLEGAL_CHARS.sub("", str(value)))
 
 
+def _blank_if_none(value):
+    return "" if value is None else value
+
+
 def _kml_colour(hex_colour, alpha):
     """"#D71920" -> KML's aabbggrr, e.g. "ff2019d7"."""
     rr, gg, bb = hex_colour[1:3], hex_colour[3:5], hex_colour[5:7]
@@ -538,7 +719,7 @@ def _kml_description(feature):
     for rep in feature["_reps"]:
         role = ", ".join(v for v in (rep["office"], rep["party"]) if v)
         contact = ", ".join(v for v in (rep["email"], rep["phone"]) if v)
-        lines.append(" -- ".join(v for v in (rep["name"], role, contact) if v))
+        lines.append(" -- ".join(v for v in (rep["name"], role, contact, rep.get("measure", "")) if v))
     return "\n".join(lines)
 
 
@@ -554,9 +735,11 @@ def kml_text(title, description, features, tolerance_m=0):
     placemarks = []
     for feature in features:
         props = feature["properties"]
-        style_id = styles.setdefault(props["fill"], f"s{len(styles)}")
-        data = "".join(f"<Data name={quoteattr(field)}><value>{_xml_text(props[field])}</value></Data>"
-                       for field in KML_FIELDS)
+        alpha = f"{round(255 * props['fill-opacity']):02x}"  # the same see-through fill as the other formats
+        style_id = styles.setdefault((props["fill"], alpha), f"s{len(styles)}")
+        fields = KML_FIELDS + tuple(key for key in ("office_spending", "vote_participation") if key in props)
+        data = "".join(f"<Data name={quoteattr(field)}><value>{_xml_text(_blank_if_none(props[field]))}</value></Data>"
+                       for field in fields)
         head = (f"<Placemark><name>{_xml_text(props['district'])}</name>"
                 f"<description>{_xml_text(_kml_description(feature))}</description>"
                 f"<styleUrl>#{style_id}</styleUrl><ExtendedData>{data}</ExtendedData>")
@@ -566,8 +749,8 @@ def kml_text(title, description, features, tolerance_m=0):
         placemarks.extend(f"{head}{_kml_polygon(polygon)}</Placemark>\n" for polygon in polygons)
     style_xml = "".join(
         f'<Style id="{style_id}"><LineStyle><color>ff333333</color><width>1</width></LineStyle>'
-        f"<PolyStyle><color>{_kml_colour(colour, '80')}</color></PolyStyle></Style>\n"
-        for colour, style_id in styles.items()
+        f"<PolyStyle><color>{_kml_colour(colour, alpha)}</color></PolyStyle></Style>\n"
+        for (colour, alpha), style_id in styles.items()
     )
     text = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
@@ -618,6 +801,7 @@ def html_text(page):
                                 "province": f["properties"]["province_territory"],
                                 "set": f["properties"]["representative_set"],
                                 "colour": f["properties"]["fill"],
+                                "dashed": bool(f.get("_no_data")),
                                 "reps": f["_reps"]}}
                 for f in page["features"]]
     head, tail = HTML_TEMPLATE.split("__DATA__")
@@ -652,12 +836,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   #panel .legend li { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
   #panel .swatch { flex: none; width: 14px; height: 14px; border: 1px solid #555; border-radius: 2px; }
   #panel .count { margin-left: auto; color: #555; }
+  #panel .key-title { font-weight: bold; font-size: 12px; margin-top: 8px; }
   #panel .unplaced li { font-size: 12px; margin: 2px 0; }
   .popup h3 { margin: 0; font-size: 14px; }
   .popup .district + .district { border-top: 1px solid #ddd; margin-top: 8px; padding-top: 8px; }
   .popup .rep { display: flex; gap: 8px; margin-top: 6px; }
   .popup .rep img { flex: none; width: 48px; height: 60px; object-fit: cover; border-radius: 3px; }
   .popup .meta { color: #555; }
+  .popup .measure { font-weight: bold; }
   @media (max-width: 600px) { #panel { left: 10px; width: auto; max-height: 45%; } }
 </style>
 </head>
@@ -715,6 +901,7 @@ var MAP_DATA = __DATA__;
   body.appendChild(search);
   body.appendChild(names);
   body.appendChild(status);
+  if (data.legend_title) { body.appendChild(el("div", "key-title", data.legend_title)); }
   if (data.legend.length) {
     var legend = el("ul", "legend");
     data.legend.forEach(function (item) {
@@ -763,7 +950,7 @@ var MAP_DATA = __DATA__;
   var layers = [];
   var districts = L.geoJSON(features, {
     style: function (feature) {
-      return {color: "#333", weight: 0.8, opacity: 0.8,
+      return {color: "#333", weight: 0.8, opacity: 0.8, dashArray: feature.properties.dashed ? "4 3" : null,
               fillColor: feature.properties.colour, fillOpacity: data.fill_opacity};
     },
     onEachFeature: function (feature, layer) {
@@ -805,6 +992,7 @@ var MAP_DATA = __DATA__;
     info.appendChild(name);
     var role = [rep.office, rep.party].filter(Boolean).join(", ");
     if (role) { info.appendChild(el("div", "meta", role)); }
+    if (rep.measure) { info.appendChild(el("div", "measure", rep.measure)); }
     if (/^[^\\s@<>"]+@[^\\s@<>"]+$/.test(rep.email || "")) {
       var mail = el("a", "", rep.email);
       mail.href = "mailto:" + rep.email;
@@ -932,12 +1120,21 @@ def parse_args(argv=None):
                         help="only legislatures/councils whose name contains TEXT, e.g. --filter Toronto")
     parser.add_argument("--refresh", action="store_true",
                         help="re-download district shapes instead of using the 30-day cache")
+    parser.add_argument("--colour-by", "--color-by", dest="colour_by", choices=sorted(MEASURES),
+                        help="shade federal ridings by MPs' office spending or voting attendance instead of "
+                             "party (run scrape_budget_office_spending.py or scrape_votes.py first)")
     add_common_args(parser)
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.colour_by and any(level != "federal" for level in args.level or ()):
+        parser.error("--colour-by only works for federal maps: office spending and voting records are "
+                     "published for MPs only")
+    return args
 
 
 def _file_stem(level, args):
     stem = LEVELS[level][1]
+    if args.colour_by:
+        stem += f"_{args.colour_by}"
     if args.province:
         stem += f"_{args.province}"
     if args.filter:
@@ -949,6 +1146,8 @@ def _file_stem(level, args):
 
 def _title(level, args):
     title = LEVELS[level][0]
+    if args.colour_by:
+        title += f" by {COLOUR_BY_TITLES[args.colour_by]}"
     qualifiers = [PROVINCES_AND_TERRITORIES[args.province]] if args.province else []
     if args.filter:
         qualifiers.append(f'"{args.filter}"')
@@ -981,21 +1180,33 @@ def make_map(level, args, all_sets):
     if not entries:
         print("Nobody to map -- no representatives were downloaded for these filters.")
         return False, problems
+    rows = [row for row, _ in entries]
+    measure = None
+    if args.colour_by:
+        try:
+            measure = MEASURES[args.colour_by](rows)
+        except MissingData as e:
+            print(e)
+            return False, problems + [str(e)]
+        print(f"Shading by {measure.title}: data for {len(measure.values)} of {len(rows)} MP(s).")
 
     shapes, failed_shapes = fetch_boundary_shapes([url for _, url in entries], refresh=args.refresh)
     if failed_shapes:
         problems.append(f"couldn't download {len(failed_shapes)} district shape(s)")
-    features, unplaced = build_features(level, entries, shapes)
+    features, unplaced = build_features(level, entries, shapes, measure)
     if not features:
         # Don't replace a good map from an earlier run with an empty one.
         print("None of these districts has a shape to draw -- no map written.")
         return False, problems or ["no district shapes"]
-    rows = [row for row, _ in entries]
+    if measure:
+        legend = colour_by_measure(features, measure)
+    else:
+        legend = legend_entries(level, rows)
 
     title = _title(level, args)
     subtitle = (f"{len(features)} district(s), {len(rows) - len(unplaced)} representative(s). "
                 f"Made {date.today().isoformat()} from Represent data.")
-    notes = []
+    notes = [measure.note] if measure else []
     if level == "local":
         notes.append("Colours tell councils apart. Click anywhere to see everyone whose district covers "
                      "that spot, e.g. both the ward councillor and the mayor.")
@@ -1014,11 +1225,11 @@ def make_map(level, args, all_sets):
     page = {
         "title": title,
         "subtitle": subtitle,
-        "legend": [{"label": label, "colour": colour, "count": count}
-                   for label, colour, count in legend_entries(level, rows)],
+        "legend_title": measure.description if measure else "",
+        "legend": [{"label": label, "colour": colour, "count": count} for label, colour, count in legend],
         "notes": notes,
         "unplaced": sorted(describe_unplaced(r) for r in unplaced),
-        "fill_opacity": 0.3 if level == "local" else 0.5,
+        "fill_opacity": MEASURE_FILL_OPACITY if measure else 0.3 if level == "local" else 0.5,
         "features": features,
     }
     final = write_text_file(os.path.join(out_dir, f"{stem}.html"), html_text(page))
@@ -1041,7 +1252,7 @@ def main(argv=None):
     apply_common_args(args)
 
     levels = []
-    for level in args.level or ["all"]:
+    for level in args.level or (["federal"] if args.colour_by else ["all"]):
         for chosen in (list(LEVELS) if level == "all" else [level]):
             if chosen not in levels:
                 levels.append(chosen)

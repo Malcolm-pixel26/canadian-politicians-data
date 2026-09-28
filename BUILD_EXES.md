@@ -57,8 +57,11 @@ politician_scrapers.exe lookup --postal-code "K1A 0A6"
 politician_scrapers.exe digest --days 7
 politician_scrapers.exe votes
 politician_scrapers.exe votes --bill C-30 --activity
+politician_scrapers.exe careers
+politician_scrapers.exe careers --mp Poilievre
 politician_scrapers.exe maps
 politician_scrapers.exe maps --level local --province ON
+politician_scrapers.exe maps --colour-by spending
 
 budget_scrapers.exe federal
 budget_scrapers.exe federal --refresh
