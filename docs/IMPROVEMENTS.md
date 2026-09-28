@@ -154,9 +154,10 @@ Improve the scraper
 
 **Performance**
 - The bulk download is used for many sets: the local scrape went from
-  ~110+ requests and 10–20 min to **2 requests** (H14). Downloads are
-  memoized, so `scrape_all.py` fetches everything once. Enrichment runs
-  its two sources in parallel.
+  ~110+ requests and 10–20 min to **5 requests** (the set list plus 4
+  pages of 1,000 people) (H14). Downloads are memoized, so
+  `scrape_all.py` fetches everything once. Enrichment runs its two
+  sources in parallel.
 
 **Usability & maintainability**
 - `argparse` everywhere: `--help`, typos rejected (H15), `--output-dir`
@@ -177,7 +178,7 @@ Improve the scraper
 | Check | Result |
 |---|---|
 | v4 code against 10 reproduction scenarios (H1–H7, H9, H10, H12) | 10/10 defects reproduced |
-| The same 10 scenarios against the new code | 10/10 fixed (e.g. peak 55 req/min on the forced per-council path; 2 requests on the default path) |
+| The same 10 scenarios against the new code | 10/10 fixed (e.g. peak 55 req/min on the forced per-council path; 5 requests on the default path at real data size) |
 | `python3 -m unittest discover -s tests` | 89 tests pass offline in ~2 s. They use trimmed real API responses (`tests/fixtures/`) and a fake clock, so rate limits and backoff are measured, not waited for |
 | Python 3.8 syntax check | All files parse with `feature_version=(3, 8)` |
 

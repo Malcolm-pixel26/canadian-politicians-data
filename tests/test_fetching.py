@@ -1,4 +1,4 @@
-from support import FakeWeb, ScraperTestCase, http_error, load_fixture, pages, sample_represent
+from support import FakeRepresent, FakeWeb, ScraperTestCase, http_error, load_fixture, pages, sample_represent
 
 import represent_common as rc
 
@@ -21,6 +21,25 @@ class FetchTests(ScraperTestCase):
         self.assertEqual(per_set_requests, 0)
         self.assertEqual({r["category"] for r in result.rows}, {"local"})
         self.assertEqual({r["province_territory"] for r in result.rows}, {"ON", "QC", "SK"})
+
+    def test_real_scale_local_fetch_is_five_requests(self):
+        # Represent's real size: the House of Commons (343 MPs) plus 108
+        # councils, 3,810 people in all -> the set list + 4 pages of 1,000.
+        commons = SAMPLE["sets"][0]
+        councils = [
+            {"name": f"Town {i} Council", "url": f"/representative-sets/town-{i}/",
+             "data_url": f"https://scrapers.herokuapp.com/represent/ca_on_town_{i}/",
+             "related": {"representatives_url": f"/representatives/town-{i}/"}}
+            for i in range(108)
+        ]
+        reps = [{"name": f"MP {i}", "related": {"representative_set_url": commons["url"]}} for i in range(343)]
+        reps += [{"name": f"Councillor {i}", "related": {"representative_set_url": councils[i % 108]["url"]}}
+                 for i in range(3810 - 343)]
+        with FakeWeb() as web:
+            FakeRepresent([commons] + councils, reps).install(web)
+            result = rc.fetch_category("local")
+            self.assertEqual(len(web.requests), 5)
+        self.assertEqual(len(result.rows), 3810 - 343)
 
     def test_few_sets_are_fetched_individually(self):
         with FakeWeb() as web:
