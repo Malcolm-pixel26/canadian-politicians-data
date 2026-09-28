@@ -419,3 +419,124 @@ class GeometryTests(ScraperTestCase):
                          ("toronto-wards-2018", "ward-1"))
         for url in ("", "/boundaries/toronto-wards-2018/", "/boundary-sets/x/y/", "/boundaries/../../etc/"):
             self.assertIsNone(make_maps.boundary_parts(url), url)
+
+
+def write_spending_csv(tmp, rows):
+    """The per-quarter CSV scrape_budget_office_spending.py writes: (published name, riding, total per quarter)."""
+    import represent_common as rc
+    import scrape_budget_office_spending as sos
+
+    records = []
+    for quarter in ((2026, 3), (2026, 4)):
+        start, end = sos.quarter_dates(*quarter)
+        for name, riding, amount in rows:
+            records.append({"fiscal_year": sos.fiscal_year_label(quarter[0]), "quarter": quarter[1],
+                            "period_start": start.isoformat(), "period_end": end.isoformat(), "name": name,
+                            "constituency": riding, "caucus": "", "salaries": amount, "travel": 0, "hospitality": 0,
+                            "contracts": 0, "total": amount})
+    rc.write_csv(os.path.join(tmp, "federal", "mp_office_spending_by_quarter.csv"), records, sos.QUARTER_CSV_FIELDS)
+
+
+def write_votes_summary(tmp, session, rows):
+    """A summary CSV like scrape_votes.py's: (name, riding, votes held, took part)."""
+    import represent_common as rc
+    import scrape_votes
+
+    fields = [c[0] for c in scrape_votes.SUMMARY_COLUMNS if c[0] not in scrape_votes.ACTIVITY_FIELDS]
+    records = [{"name": name, "riding": riding, "votes": held, "yes": took_part, "no": 0, "paired": 0,
+                "didnt_vote": held - took_part, "participation_pct": round(100 * took_part / held, 1)}
+               for name, riding, held, took_part in rows]
+    rc.write_csv(os.path.join(tmp, "federal", f"votes_{session}_summary.csv"), records, fields)
+
+
+# Published "Last, First" names, as the House of Commons reports them.
+SPENDING = [("Bains, Parm", "Richmond East—Steveston", 150000.0),
+            ("Kronis, Tamara", "Nanaimo—Ladysmith", 120000.0),
+            ("Hallan, Jasraj", "Calgary East", 190000.0),
+            ("Gill, Amanpreet", "Calgary Skyview", 250000.0),
+            ("Gill, Marilène", "Côte-Nord—Kawawachikamach—Nitassinan", 210000.0)]
+
+
+class ColourByTests(MapTestCase):
+    def test_ridings_shaded_by_office_spending(self):
+        os.makedirs(os.path.join(self.tmp, "federal"), exist_ok=True)
+        write_spending_csv(self.tmp, SPENDING)
+        self.assertEqual(make_maps.main(["--colour-by", "spending"]), 0)
+        # Only the federal map, under its own name: the party map is kept.
+        self.assertEqual(sorted(os.listdir(os.path.join(self.tmp, "maps"))),
+                         ["federal_map_spending.geojson", "federal_map_spending.html", "federal_map_spending.kml"])
+        ridings = self.properties("federal_map_spending")
+        self.assertEqual(ridings["Richmond East—Steveston"]["office_spending"], 300000.0)  # two quarters
+        self.assertEqual(ridings["Calgary Skyview"]["office_spending"], 500000.0)  # "Amanpreet S. Gill" found
+        self.assertEqual(ridings["Calgary Skyview"]["fill"], make_maps.MEASURE_COLOURS[-1])  # the most, darkest
+        self.assertEqual(ridings["Nanaimo—Ladysmith"]["fill"], make_maps.MEASURE_COLOURS[0])  # the least
+        self.assertIsNone(ridings["Outremont"]["office_spending"])  # Rachel Bendayan isn't in the file
+        self.assertEqual(ridings["Outremont"]["fill"], make_maps.NO_DATA_COLOUR)
+
+        page, data = self.page_data("federal_map_spending")
+        self.assertIn("<title>Federal ridings by office spending</title>", page)
+        self.assertEqual(data["legend_title"],
+                         "MP office spending, October 1, 2025 to March 31, 2026 (2025-2026 Q3, Q4)")
+        self.assertEqual(data["legend"][0], {"label": "$240,000", "colour": make_maps.MEASURE_COLOURS[0], "count": 1})
+        self.assertEqual(data["legend"][-1], {"label": "No data", "colour": make_maps.NO_DATA_COLOUR, "count": 1})
+        self.assertEqual(data["fill_opacity"], make_maps.MEASURE_FILL_OPACITY)
+        outremont = next(f["properties"] for f in data["features"] if f["properties"]["district"] == "Outremont")
+        self.assertTrue(outremont["dashed"])
+        self.assertEqual(outremont["reps"][0]["measure"], "Office spending: no data found")
+        bains = next(f["properties"] for f in data["features"] if f["properties"]["district"].startswith("Richmond"))
+        self.assertEqual(bains["reps"][0]["measure"], "Office spending: $300,000 over 2 quarter(s)")
+
+        root = ET.parse(self.map_file("federal_map_spending.kml")).getroot()
+        values = [d.findtext(f"{KML}value") for d in root.iter(f"{KML}Data") if d.get("name") == "office_spending"]
+        self.assertIn("300000.0", values)
+        self.assertIn("", values)  # no data
+        self.assertIn("d9", {s.findtext(f".//{KML}PolyStyle/{KML}color")[:2] for s in root.iter(f"{KML}Style")})
+
+    def test_ridings_shaded_by_voting_attendance(self):
+        os.makedirs(os.path.join(self.tmp, "federal"), exist_ok=True)
+        latest = [("Parm Bains", "Richmond East—Steveston", 250, 241), ("Tamara Kronis", "Nanaimo—Ladysmith", 250, 220),
+                  ("Rachel Bendayan", "Outremont", 250, 248), ("Jasraj Hallan", "Calgary East", 250, 228),
+                  ("Amanpreet Gill", "Calgary Skyview", 250, 232)]
+        write_votes_summary(self.tmp, "45-1", latest)
+        write_votes_summary(self.tmp, "44-1", [("Parm Bains", "Richmond East—Steveston", 100, 50)])  # older
+        write_votes_summary(self.tmp, "45-1_C-30", [("Parm Bains", "Richmond East—Steveston", 4, 1)])  # one bill
+        self.assertEqual(make_maps.main(["--level", "federal", "--color-by", "attendance"]), 0)
+        ridings = self.properties("federal_map_attendance")
+        self.assertEqual(ridings["Richmond East—Steveston"]["vote_participation"], 96.4)
+        self.assertEqual(ridings["Outremont"]["fill"], make_maps.MEASURE_COLOURS[-1])  # the most votes
+        self.assertIsNone(ridings["Côte-Nord—Kawawachikamach—Nitassinan"]["vote_participation"])
+        _, data = self.page_data("federal_map_attendance")
+        self.assertEqual(data["legend_title"], "Share of recorded votes taken part in, session 45-1")
+        bains = next(f["properties"] for f in data["features"] if f["properties"]["district"].startswith("Richmond"))
+        self.assertEqual(bains["reps"][0]["measure"], "Took part in 96.4% of recorded votes (241 of 250)")
+
+    def test_missing_data_is_explained_and_nothing_written(self):
+        self.assertEqual(make_maps.main(["--colour-by", "spending"]), 1)
+        self.assertIn("No office spending data yet -- run scrape_budget_office_spending.py first.", self.output.getvalue())
+        os.makedirs(os.path.join(self.tmp, "federal"), exist_ok=True)
+        write_votes_summary(self.tmp, "45-1_C-30", [("Parm Bains", "Richmond East—Steveston", 4, 1)])
+        self.assertEqual(make_maps.main(["--colour-by", "attendance"]), 1)
+        self.assertIn("No voting records yet -- run scrape_votes.py first", self.output.getvalue())
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "maps")) and os.listdir(os.path.join(self.tmp, "maps")))
+        self.assertEqual(self.boundary_requests(), [])  # stopped before downloading any shapes
+
+    def test_only_federal_maps_can_be_shaded(self):
+        with mock.patch("sys.stderr"):
+            with self.assertRaises(SystemExit) as ctx:
+                make_maps.parse_args(["--level", "local", "--colour-by", "spending"])
+        self.assertEqual(ctx.exception.code, 2)
+
+
+class ValueClassTests(ScraperTestCase):
+    def test_equal_sized_classes(self):
+        self.assertEqual(make_maps.value_classes(range(1, 11)), [(1, 2), (3, 4), (5, 6), (7, 8), (9, 10)])
+        self.assertEqual(make_maps.value_classes([]), [])
+
+    def test_equal_values_stay_together(self):
+        self.assertEqual(make_maps.value_classes([1, 1, 1, 1, 2, 3]), [(1, 1), (2, 2), (3, 3)])
+        self.assertEqual(make_maps.value_classes([7, 7, 7]), [(7, 7)])
+
+    def test_fewer_classes_still_run_light_to_dark(self):
+        self.assertEqual(make_maps._shades(5), list(make_maps.MEASURE_COLOURS))
+        self.assertEqual(make_maps._shades(3), [make_maps.MEASURE_COLOURS[i] for i in (0, 2, 4)])
+        self.assertEqual(make_maps._shades(1), [make_maps.MEASURE_COLOURS[2]])
