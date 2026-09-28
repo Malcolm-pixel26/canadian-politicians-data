@@ -2,8 +2,9 @@
 
 Scripts that pull public data on Canadian elected officials (federal MPs,
 provincial/territorial legislators, and municipal councillors and mayors)
-into Excel/CSV/JSON. They keep a running history in a master workbook
-and total up federal campaign contributions per politician.
+into Excel/CSV/JSON. They keep a running history in a master workbook,
+total up federal campaign contributions and MPs' office spending per
+politician, and draw maps of who represents each district.
 
 Data comes from free, public, no-key APIs and open data:
 
@@ -11,11 +12,14 @@ Data comes from free, public, no-key APIs and open data:
   officials at every level of government, so these scripts don't need
   to scrape each legislature's website. It currently covers the House of
   Commons, 12 of the 13 provincial/territorial legislatures (there is no
-  Nunavut set) and 108 municipal councils, about 3,800 people in all.
+  Nunavut set) and 108 municipal councils, about 3,800 people in all,
+  along with the boundaries of the districts they represent.
 - [OpenParliament](https://openparliament.ca/api/) provides each MP's
   first elected date, profile link and voting record.
 - [House of Commons open data](https://www.ourcommons.ca/en/open-data)
-  provides each MP's current committee memberships.
+  provides each MP's current committee memberships, and its
+  [proactive disclosure](https://www.ourcommons.ca/proactivedisclosure/en/members)
+  pages each MP's quarterly office expenditures.
 - [Elections Canada open data](https://www.elections.ca/content.aspx?section=fin&dir=oda&document=index&lang=e)
   provides federal campaign contributions.
 
@@ -54,9 +58,15 @@ written up in [docs/IMPROVEMENTS.md](docs/IMPROVEMENTS.md).
   new faces, party switches, contact changes) over any period.
 - `scrape_votes.py`: how every MP voted in a session of the House of
   Commons, with per-MP statistics.
+- `make_maps.py`: maps of every riding, ward and district with the
+  people who represent it, as a double-clickable web page, GeoJSON for
+  QGIS and KML for Google My Maps.
 - `scrape_budget_federal.py`: federal campaign contribution totals per
   politician, from Elections Canada's public political financing data.
   Writes the **Federal** tab of `MASTER_CANADA_POLITICIAN_BUDGET.xlsx`.
+- `scrape_budget_office_spending.py`: what each MP's office spent
+  (staff salaries, travel, hospitality, contracts), from the House of
+  Commons' quarterly reports. Writes the **Federal_Office_Spending** tab.
 - `scrape_budget_provincial_territorial.py`: same idea for
   provincial/territorial politicians. Writes the
   **Provincial_Territorial** tab. The tab and matching plumbing are in
@@ -65,11 +75,11 @@ written up in [docs/IMPROVEMENTS.md](docs/IMPROVEMENTS.md).
 - `scrape_budget_local.py`: same idea for local (municipal)
   politicians. Writes the **Local** tab, with the same "plumbing ready,
   no source wired in yet" status as the provincial script.
-- `scrape_all_budgets.py`: runs all three budget scripts, one after
-  another, updating all three tabs of `MASTER_CANADA_POLITICIAN_BUDGET.xlsx`
+- `scrape_all_budgets.py`: runs all four budget scripts, one after
+  another, updating every tab of `MASTER_CANADA_POLITICIAN_BUDGET.xlsx`
   in one go.
 - `budget_common.py`: the column layout and matching logic shared by
-  the three budget scripts.
+  the budget scripts.
 - `tests/`: automated tests (see [Development](#development)).
 
 ## Usage
@@ -102,6 +112,8 @@ than silently ignored.
 | `python3 lookup_politician.py --postal-code "K1A 0A6"` | everyone who represents that postal code, at every level of government |
 | `python3 changes_digest.py --days 7` | a report of everything that changed in the last 7 days |
 | `python3 scrape_votes.py --bill C-30` | how every MP voted on a bill (leave out `--bill` for the whole session) |
+| `python3 make_maps.py --level federal` | a map of every riding and its MP: web page, GeoJSON for QGIS, KML for Google My Maps |
+| `python3 scrape_budget_office_spending.py --fiscal-year 2024-2025` | each MP's office spending for one fiscal year (default: the latest four quarters) |
 
 A full run is quick. The local scraper downloads all ~3,800
 representatives in a handful of requests, so it finishes in seconds
@@ -133,11 +145,15 @@ politician_scrapers.exe lookup --postal-code "K1A 0A6"
 politician_scrapers.exe digest --days 7
 politician_scrapers.exe votes
 politician_scrapers.exe votes --bill C-30 --activity
+politician_scrapers.exe maps
+politician_scrapers.exe maps --level local --province ON
 
 budget_scrapers.exe federal
 budget_scrapers.exe federal --refresh
 budget_scrapers.exe federal --since 2015
 budget_scrapers.exe federal --reviewed
+budget_scrapers.exe spending
+budget_scrapers.exe spending --fiscal-year 2024-2025
 budget_scrapers.exe provincial
 budget_scrapers.exe provincial --province ontario
 budget_scrapers.exe local
@@ -163,10 +179,16 @@ variable, to put it anywhere else.
 ~/Desktop/output/
   master.xlsx                        <- persistent, updated every run (see below)
   master.backup.xlsx                 <- the previous version of master.xlsx
-  MASTER_CANADA_POLITICIAN_BUDGET.xlsx  <- funding data, one tab per level of government (see below)
+  MASTER_CANADA_POLITICIAN_BUDGET.xlsx  <- campaign funding per level of government, and MPs' office spending (see below)
   changes/
     changes_2026-09-28.html          <- what changed that day (refreshed by every run)
     changes_2026-09-22_to_2026-09-28.html  <- from changes_digest.py
+  maps/                              <- from make_maps.py
+    federal_map.html                 <- double-click to open in a browser
+    federal_map.geojson              <- for QGIS
+    federal_map.kml                  <- for Google My Maps / Google Earth
+    provincial_territorial_map.*     (same three files per level)
+    local_map.*
   federal/
     federal_mps.xlsx
     federal_mps.csv
@@ -174,6 +196,7 @@ variable, to put it anywhere else.
     votes_45-1.xlsx                  <- from scrape_votes.py (45-1 = the session)
     votes_45-1_summary.csv
     votes_45-1_ballots.csv
+    mp_office_spending_by_quarter.csv  <- from scrape_budget_office_spending.py
   provincial_territorial/
     all_provincial_territorial.xlsx
     all_provincial_territorial.csv
@@ -383,29 +406,80 @@ votes don't change, so each vote is cached under `output/_cache/` and
 later runs only fetch new ones. `--activity` counts speeches one MP at
 a time and adds roughly 10–20 minutes for the whole House.
 
-## Budget scripts: campaign funding per politician
+## `make_maps.py`: riding maps
 
-Three scripts, mirroring the federal/provincial-territorial/local split
-of the politician scrapers, each write their own tab of the shared
-`~/Desktop/output/MASTER_CANADA_POLITICIAN_BUDGET.xlsx` workbook:
+```bash
+python3 make_maps.py                                   # federal, provincial/territorial and local maps
+python3 make_maps.py --level federal
+python3 make_maps.py --level provincial --province QC
+python3 make_maps.py --level local --filter Toronto
+python3 make_maps.py --refresh                         # re-download the district shapes too
+```
+
+Each map joins every district's boundary with the people who represent
+it, and is written three ways to `output/maps/`:
+
+- **`federal_map.html`**: double-click to open it in a browser. Hover
+  over a district for its name, or click anywhere to see who represents
+  that spot, with party, email, phone and a link to their page. On a
+  local map that includes both the ward councillor and the city-wide
+  mayor. The search box finds a district or a person. The page loads
+  the Leaflet map library and Natural Resources Canada's Canada Base
+  Map from the internet (OpenStreetMap's own servers refuse maps opened
+  from a file); the districts and people are inside the file.
+- **`federal_map.geojson`**: for QGIS (Layer > Add Layer > Add Vector
+  Layer) or any GIS tool. It has one feature per district with plain
+  columns: district, province, party, representatives, office, email,
+  phone, website, number of seats and the district's Represent link.
+- **`federal_map.kml`**: for Google My Maps (Add layer > Import) or
+  Google Earth. My Maps imports at most 5 MB and 2,000 shapes per layer
+  and can drop "multi-part" shapes. So each separate piece of a district
+  (an island, say) is its own placemark, and if the file would be over
+  5 MB its shapes are simplified until it fits; the script says by how
+  much, and the GeoJSON and HTML keep full detail. More than 2,000
+  shapes (every council in Canada at once)? Make one map per province
+  with `--province`.
+
+Federal and provincial maps are coloured by party, with a key showing
+each party's seats. Local maps are coloured by council, since few
+councillors run under a party banner.
+
+The shapes are the simplified "simple shapes" Represent publishes for
+web maps. Each boundary set is downloaded in one go where Represent
+allows it: all 343 federal ridings take two requests. The first local
+map takes about five minutes, since a few hundred ward sets and towns
+are fetched at Represent's rate limit. Shapes are cached under
+`output/_cache/boundaries/` for 30 days, because boundaries rarely
+change, and `--refresh` downloads them again. The people are always
+fetched fresh. Anyone Represent has no district shape
+for is listed on the map's side panel rather than silently left out.
+
+## Budget scripts: campaign funding and office spending
+
+Four scripts each write their own tab of the shared
+`~/Desktop/output/MASTER_CANADA_POLITICIAN_BUDGET.xlsx` workbook: campaign
+funding at each level of government (mirroring the federal/provincial-
+territorial/local split of the politician scrapers), plus what MPs'
+offices spend:
 
 | Script | Tab it writes | Coverage |
 |---|---|---|
 | `scrape_budget_federal.py` | `Federal` | Fully implemented, from Elections Canada Open Data |
+| `scrape_budget_office_spending.py` | `Federal_Office_Spending` | Fully implemented, from the House of Commons' quarterly reports |
 | `scrape_budget_provincial_territorial.py` | `Provincial_Territorial` | Plumbing ready, no jurisdiction wired in yet |
 | `scrape_budget_local.py` | `Local` | Plumbing ready, no municipality wired in yet |
 
 Run any of them independently, in any order, as often as you like.
 Each only touches its own tab (and its own row on the workbook's
 `Notes` tab), so re-running one never wipes out the others. Or run all
-three at once:
+four at once:
 
 ```bash
 python3 scrape_all_budgets.py
 ```
 
-Each row has the same columns regardless of tab, so they're easy to
-compare/sort side by side: `name`, `category`, `party_name`,
+The three campaign-funding tabs have the same columns, so they're easy
+to compare/sort side by side: `name`, `category`, `party_name`,
 `representative_set`, `province_territory`, `recipient_type`,
 `total_contributions` (monetary), `non_monetary_contributions`
 (in-kind), `contribution_count`, `avg_contribution`, `date_range`,
@@ -452,6 +526,50 @@ text (see `FIELD_CANDIDATES` in `scrape_budget_federal.py`). If
 Elections Canada ever renames a column the script needs, it stops and
 prints the file's real header instead of silently summing the wrong
 column.
+
+### `scrape_budget_office_spending.py`: MPs' office spending
+
+```bash
+python3 scrape_budget_office_spending.py                           # the four latest quarters
+python3 scrape_budget_office_spending.py --fiscal-year 2024-2025   # one fiscal year (April to March)
+python3 scrape_budget_office_spending.py --quarters 8              # the last two years
+```
+
+Campaign contributions are money a politician *raised*; this is what
+each MP's office *spent* from House of Commons funds, according to the
+House's quarterly
+[Members' Summary of Expenditures](https://www.ourcommons.ca/proactivedisclosure/en/members).
+It writes the `Federal_Office_Spending` tab, one row per MP, biggest
+total first:
+
+| Column | What it covers |
+|---|---|
+| `salaries` | the MP's employees (not the MP's own salary) |
+| `travel` | travel charged to the Member's Office Budget and the Travel Points System |
+| `hospitality` | events held in carrying out the MP's parliamentary functions |
+| `contracts` | everything else: service contracts, advertising, gifts, constituency office leases, office operations and training |
+| `total` | the four added up |
+| `quarters` | how many of the chosen quarters list the MP |
+
+The other columns are `name`, `constituency`, `caucus`,
+`province_territory` and `match_status`, and the tab's `Notes` row
+names the exact quarters included. Every row of every quarter, exactly
+as published, also goes to `output/federal/mp_office_spending_by_quarter.csv`.
+
+MPs are matched to `master.xlsx` the same way contributions are: by
+full name, then by first + last name, flagging a riding that differs.
+An MP who changed ridings (after a by-election, say) gets one row
+covering both. People in the reports who aren't in `master.xlsx`,
+usually former MPs whose last bills were still being processed, are
+kept, and so is each vacant seat, so every dollar in the reports shows
+up somewhere. The House counts expenses when it processes them, so a
+correction shows up as a negative amount.
+
+The House doesn't publish a stable link to its CSV version, so the
+script reads the table on each quarter's page, finding the columns by
+their headings. If the layout changes, an amount can't be read, or two
+quarters come back identical, it stops rather than writing wrong
+totals.
 
 ### `scrape_budget_provincial_territorial.py` and `scrape_budget_local.py`
 
@@ -514,8 +632,9 @@ data source. Once a fetcher is added you can run just that one with
 - **Scope:** all data here is official, public contact/office
   information published by Represent, OpenParliament and the House of
   Commons as part of these people's public role as elected officials,
-  plus federal contribution totals published by Elections Canada. It is
-  not personal information about their private lives.
+  plus federal contribution totals published by Elections Canada and
+  MPs' office expenditures published by the House of Commons. It is not
+  personal information about their private lives.
 
 ## Development
 

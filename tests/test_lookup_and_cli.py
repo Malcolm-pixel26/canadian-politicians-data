@@ -7,10 +7,12 @@ import changes_digest
 import cli_budgets
 import cli_politicians
 import lookup_politician
+import make_maps
 import scrape_all
 import scrape_all_budgets
 import scrape_budget_federal
 import scrape_budget_local
+import scrape_budget_office_spending
 import scrape_budget_provincial_territorial
 import scrape_federal
 import scrape_local
@@ -58,7 +60,8 @@ class CommandLineTests(ScraperTestCase):
         # v4 silently ignored unknown flags: "--filtr Toronto" ran the full scrape.
         for module in (scrape_federal, scrape_provincial_territorial, scrape_local, scrape_all,
                        lookup_politician, scrape_budget_federal, scrape_budget_provincial_territorial,
-                       scrape_budget_local, scrape_all_budgets, scrape_votes, changes_digest):
+                       scrape_budget_local, scrape_all_budgets, scrape_votes, changes_digest, make_maps,
+                       scrape_budget_office_spending):
             with self.subTest(module=module.__name__), mock.patch("sys.stderr"):
                 argv = ["Jane", "--filtr", "x"] if module is lookup_politician else ["--filtr", "x"]
                 with self.assertRaises(SystemExit) as ctx:
@@ -88,11 +91,14 @@ class CommandLineTests(ScraperTestCase):
         fake.assert_called_once()
 
     def test_new_subcommands_are_dispatched(self):
-        for command, module in (("votes", scrape_votes), ("digest", changes_digest)):
+        cases = (("votes", scrape_votes, cli_politicians), ("digest", changes_digest, cli_politicians),
+                 ("maps", make_maps, cli_politicians), ("spending", scrape_budget_office_spending, cli_budgets),
+                 ("office_spending", scrape_budget_office_spending, cli_budgets))
+        for command, module, cli in cases:
             with self.subTest(command=command), mock.patch.object(module, "main", return_value=0) as fake, \
-                    mock.patch.object(sys, "argv", ["politician_scrapers", command, "--help-me"]):
+                    mock.patch.object(sys, "argv", ["scrapers", command, "--help-me"]):
                 with self.assertRaises(SystemExit) as ctx:
-                    cli_politicians.main()
+                    cli.main()
                 self.assertEqual(ctx.exception.code, 0)
                 fake.assert_called_once()
-                self.assertEqual(sys.argv, ["politician_scrapers", "--help-me"])
+                self.assertEqual(sys.argv, ["scrapers", "--help-me"])

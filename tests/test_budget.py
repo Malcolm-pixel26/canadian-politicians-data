@@ -4,6 +4,7 @@ import zipfile
 from unittest import mock
 
 from support import FakeResponse, FakeWeb, ScraperTestCase, http_error, load_fixture
+from test_office_spending import FakeCommons
 
 import budget_common
 import represent_common as rc
@@ -147,11 +148,15 @@ class BudgetScriptTests(ScraperTestCase):
             rc.flatten_representative(r, "federal") for r in SAMPLE["representatives"]
             if r["representative_set_name"] == "House of Commons"
         ], "federal")
-        with mock.patch.object(sbf, "download_contributions_zip", return_value=self.make_zip()):
+        with FakeWeb() as web, mock.patch.object(sbf, "download_contributions_zip", return_value=self.make_zip()):
+            FakeCommons().install(web)
             self.assertEqual(scrape_all_budgets.main(["--since", "2004"]), 0)
 
         path = budget_common.budget_workbook_path()
-        self.assertEqual(self.sheet_names(path), ["Federal", "Provincial_Territorial", "Local", "Notes"])
+        self.assertEqual(self.sheet_names(path),
+                         ["Federal", "Federal_Office_Spending", "Provincial_Territorial", "Local", "Notes"])
+        spending = {r["Name"]: r for r in self.read_sheet(path, "Federal_Office_Spending")}
+        self.assertEqual(spending["Jasraj Hallan"]["Match Status"], "matched")
         federal = {r["Name"]: r for r in self.read_sheet(path, "Federal")}
         self.assertEqual(federal["Jasraj Hallan"]["Total Contributions"], 750)
         self.assertEqual(federal["Jasraj Hallan"]["Province Territory"], "AB")
