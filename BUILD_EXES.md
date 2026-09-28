@@ -53,6 +53,10 @@ politician_scrapers.exe local --province BC
 politician_scrapers.exe all
 politician_scrapers.exe lookup "Jane Doe"
 politician_scrapers.exe lookup "Jane Doe" --live --category federal
+politician_scrapers.exe lookup --postal-code "K1A 0A6"
+politician_scrapers.exe digest --days 7
+politician_scrapers.exe votes
+politician_scrapers.exe votes --bill C-30 --activity
 
 budget_scrapers.exe federal
 budget_scrapers.exe federal --refresh

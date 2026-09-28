@@ -3,6 +3,7 @@ from unittest import mock
 
 from support import FakeWeb, ScraperTestCase, sample_represent
 
+import changes_digest
 import cli_budgets
 import cli_politicians
 import lookup_politician
@@ -14,6 +15,7 @@ import scrape_budget_provincial_territorial
 import scrape_federal
 import scrape_local
 import scrape_provincial_territorial
+import scrape_votes
 
 
 class LookupTests(ScraperTestCase):
@@ -56,7 +58,7 @@ class CommandLineTests(ScraperTestCase):
         # v4 silently ignored unknown flags: "--filtr Toronto" ran the full scrape.
         for module in (scrape_federal, scrape_provincial_territorial, scrape_local, scrape_all,
                        lookup_politician, scrape_budget_federal, scrape_budget_provincial_territorial,
-                       scrape_budget_local, scrape_all_budgets):
+                       scrape_budget_local, scrape_all_budgets, scrape_votes, changes_digest):
             with self.subTest(module=module.__name__), mock.patch("sys.stderr"):
                 argv = ["Jane", "--filtr", "x"] if module is lookup_politician else ["--filtr", "x"]
                 with self.assertRaises(SystemExit) as ctx:
@@ -84,3 +86,13 @@ class CommandLineTests(ScraperTestCase):
                 cli_budgets.main()
         self.assertEqual(ctx.exception.code, 0)
         fake.assert_called_once()
+
+    def test_new_subcommands_are_dispatched(self):
+        for command, module in (("votes", scrape_votes), ("digest", changes_digest)):
+            with self.subTest(command=command), mock.patch.object(module, "main", return_value=0) as fake, \
+                    mock.patch.object(sys, "argv", ["politician_scrapers", command, "--help-me"]):
+                with self.assertRaises(SystemExit) as ctx:
+                    cli_politicians.main()
+                self.assertEqual(ctx.exception.code, 0)
+                fake.assert_called_once()
+                self.assertEqual(sys.argv, ["politician_scrapers", "--help-me"])
