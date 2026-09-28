@@ -1,0 +1,21 @@
+{
+  "_source": "List entries copied from https://api.openparliament.ca/politicians/?format=json (fetched 2026-09-28); detail records follow the live /politicians/<slug>/ shape (memberships = House seat terms, other_info.parl_mp_id = House of Commons person ID), with illustrative membership dates.",
+  "list": [
+    {"name": "Ziad Aboultaif", "url": "/politicians/ziad-aboultaif/", "current_party": {"short_name": {"en": "Conservative"}}, "current_riding": {"province": "AB", "name": {"en": "Edmonton Manning"}}, "image": "/media/polpics/ziad-aboultaif_3dcSavL.jpg"},
+    {"name": "Parm Bains", "url": "/politicians/parm-bains/", "current_party": {"short_name": {"en": "Liberal"}}, "current_riding": {"province": "BC", "name": {"en": "Richmond East—Steveston"}}},
+    {"name": "Tamara Kronis", "url": "/politicians/tamara-kronis/", "current_party": {"short_name": {"en": "Conservative"}}, "current_riding": {"province": "BC", "name": {"en": "Nanaimo—Ladysmith"}}},
+    {"name": "Rachel Bendayan", "url": "/politicians/rachel-bendayan/", "current_party": {"short_name": {"en": "Liberal"}}, "current_riding": {"province": "QC", "name": {"en": "Outremont"}}},
+    {"name": "Jasraj Singh Hallan", "url": "/politicians/jasraj-singh-hallan/", "current_party": {"short_name": {"en": "Conservative"}}, "current_riding": {"province": "AB", "name": {"en": "Calgary East"}}},
+    {"name": "Amanpreet S. Gill", "url": "/politicians/amanpreet-gill/", "current_party": {"short_name": {"en": "Conservative"}}, "current_riding": {"province": "AB", "name": {"en": "Calgary Skyview"}}, "image": "/media/polpics/amanpreet-gill.jpg"},
+    {"name": "Marilène Gill", "url": "/politicians/marilene-gill/", "current_party": {"short_name": {"en": "Bloc"}}, "current_riding": {"province": "QC", "name": {"en": "Côte-Nord—Kawawachikamach—Nitassinan"}}}
+  ],
+  "details": {
+    "/politicians/ziad-aboultaif/": {"name": "Ziad Aboultaif", "given_name": "Ziad", "family_name": "Aboultaif", "other_info": {"parl_mp_id": ["89156"]}, "links": [{"url": "https://www.ourcommons.ca/members/en/ziad-aboultaif(89156)", "note": "Page on ourcommons.ca"}], "memberships": [{"url": "/politicians/memberships/4208/", "start_date": "2015-10-19", "end_date": null, "party": {"short_name": {"en": "Conservative"}}, "label": {"en": "Conservative MP for Edmonton Manning"}, "riding": {"name": {"en": "Edmonton Manning"}, "province": "AB", "id": 48018}}], "url": "/politicians/ziad-aboultaif/"},
+    "/politicians/parm-bains/": {"name": "Parm Bains", "other_info": {"parl_mp_id": ["111067"]}, "memberships": [{"start_date": "2021-09-20", "end_date": "2025-03-23", "label": {"en": "Liberal MP for Steveston—Richmond East"}}, {"start_date": "2025-04-28", "end_date": null, "label": {"en": "Liberal MP for Richmond East—Steveston"}}], "url": "/politicians/parm-bains/"},
+    "/politicians/tamara-kronis/": {"name": "Tamara Kronis", "other_info": {"parl_mp_id": ["111025"]}, "memberships": [{"start_date": "2025-04-28", "end_date": null, "label": {"en": "Conservative MP for Nanaimo—Ladysmith"}}], "url": "/politicians/tamara-kronis/"},
+    "/politicians/rachel-bendayan/": {"name": "Rachel Bendayan", "other_info": {"parl_mp_id": ["88567"]}, "memberships": [{"start_date": "2019-02-25", "end_date": "2019-09-10", "label": {"en": "Liberal MP for Outremont"}}, {"start_date": "2019-10-21", "end_date": null, "label": {"en": "Liberal MP for Outremont"}}], "url": "/politicians/rachel-bendayan/"},
+    "/politicians/jasraj-singh-hallan/": {"name": "Jasraj Singh Hallan", "other_info": {"parl_mp_id": ["105630"]}, "memberships": [{"start_date": "2019-10-21", "end_date": "2025-03-23", "label": {"en": "Conservative MP for Calgary Forest Lawn"}}, {"start_date": "2025-04-28", "end_date": null, "label": {"en": "Conservative MP for Calgary East"}}], "url": "/politicians/jasraj-singh-hallan/"},
+    "/politicians/amanpreet-gill/": {"name": "Amanpreet S. Gill", "other_info": {"parl_mp_id": ["123418"]}, "memberships": [{"start_date": "2025-04-28", "end_date": null, "label": {"en": "Conservative MP for Calgary Skyview"}}], "url": "/politicians/amanpreet-gill/"},
+    "/politicians/marilene-gill/": {"name": "Marilène Gill", "other_info": {"parl_mp_id": ["88538"]}, "memberships": [{"start_date": "2015-10-19", "end_date": null, "label": {"en": "Bloc MP for Manicouagan"}}], "url": "/politicians/marilene-gill/"}
+  }
+}
