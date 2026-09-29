@@ -65,7 +65,7 @@ from budget_common import (
     BUDGET_FIELDS,
     OUTPUT_FILENAME,
     build_budget_rows as _build_budget_rows,
-    read_master_politicians,
+    read_master_mps,
     write_budget_rows,
 )
 from represent_common import (
@@ -397,13 +397,13 @@ NOTES_TEXT = notes_text()
 
 def build_budget_rows(contribution_totals):
     """
-    Merge aggregated contribution totals with the federal politicians in
-    the existing master.xlsx (matching rules: budget_common.build_budget_rows).
-    Every federal politician in master.xlsx appears in the output, even
-    with no funding match, followed by every recipient that matched nobody
-    (parties, EDAs, past candidates...).
+    Merge aggregated contribution totals with the MPs in the existing
+    master.xlsx (matching rules: budget_common.build_budget_rows). Every
+    MP in master.xlsx appears in the output, even with no funding match,
+    followed by every recipient that matched nobody (parties, EDAs, past
+    candidates...). Senators are left out: they're appointed, not elected.
     """
-    return _build_budget_rows(read_master_politicians("Federal"), contribution_totals, NOT_FOUND_STATUS)
+    return _build_budget_rows(read_master_mps(), contribution_totals, NOT_FOUND_STATUS)
 
 
 def parse_args(argv=None):
@@ -441,13 +441,13 @@ def run(args):
         inspect_columns(zip_path)
         contribution_totals = read_contributions_from_zip(zip_path, since_year=args.since)
 
-    master_rows = read_master_politicians("Federal")
+    master_rows = read_master_mps()
     if not master_rows:
-        print("Note: master.xlsx has no federal politicians yet -- run scrape_federal.py first, "
+        print("Note: master.xlsx has no MPs yet -- run scrape_federal.py first, "
               "or every recipient will be listed as unmatched.")
     budget_rows = _build_budget_rows(master_rows, contribution_totals, NOT_FOUND_STATUS)
     matched = sum(1 for r in budget_rows[:len(master_rows)] if r["match_status"].startswith("matched"))
-    print(f"Matched {matched}/{len(master_rows)} federal politician(s) to Elections Canada recipients.")
+    print(f"Matched {matched}/{len(master_rows)} MP(s) to Elections Canada recipients.")
 
     out_path = write_budget_rows(SHEET_NAME, budget_rows, notes_text(dataset, args.since))
     print(f"Done. {len(budget_rows)} row(s) saved to {out_path}")

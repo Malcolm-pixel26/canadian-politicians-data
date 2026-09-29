@@ -24,6 +24,7 @@ import os
 from represent_common import (
     get_master_path,
     get_output_dir,
+    in_house_of_commons,
     normalize_name,
     read_master_tab,
     write_budget_tab,
@@ -60,6 +61,13 @@ def budget_workbook_path():
 def read_master_politicians(sheet_name):
     """Every politician on one tab of master.xlsx (active and removed)."""
     return list(read_master_tab(get_master_path(), sheet_name).values())
+
+
+def read_master_mps():
+    """The MPs on master.xlsx's Federal tab (active and removed) -- not
+    the senators beside them, who run no campaigns and have no House of
+    Commons budget."""
+    return [row for row in read_master_politicians("Federal") if in_house_of_commons(row)]
 
 
 def _short_key(first, last, full_name=""):

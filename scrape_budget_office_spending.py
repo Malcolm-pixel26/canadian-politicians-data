@@ -46,7 +46,7 @@ import re
 import sys
 from datetime import date
 
-from budget_common import budget_workbook_path, match_to_master, read_master_politicians
+from budget_common import budget_workbook_path, match_to_master, read_master_mps
 from represent_common import (
     FetchError,
     add_common_args,
@@ -271,7 +271,7 @@ def _spending_columns(entry):
 
 
 def build_spending_rows(master_rows, entries):
-    """One row per federal politician in master.xlsx (with their spending,
+    """One row per MP in master.xlsx (with their spending,
     or NO_SPENDING_STATUS), then everyone in the reports who matched
     nobody -- former MPs, vacant seats -- so no spending is left out."""
     pairs, unmatched = match_to_master(master_rows, entries)
@@ -383,14 +383,14 @@ def run(args):
         print(f"Couldn't read the House of Commons report: {e}.\nNothing was changed.")
         return 1
 
-    master_rows = read_master_politicians("Federal")
+    master_rows = read_master_mps()
     if not master_rows:
-        print("Note: master.xlsx has no federal politicians yet -- run scrape_federal.py first, "
+        print("Note: master.xlsx has no MPs yet -- run scrape_federal.py first, "
               "or everyone will be listed as not in master.xlsx.")
     entries = spending_by_person(quarter_rows)
     rows = build_spending_rows(master_rows, entries)
     matched = sum(1 for r in rows[:len(master_rows)] if r["match_status"].startswith("matched"))
-    print(f"Matched {matched}/{len(master_rows)} federal politician(s) to the spending reports.")
+    print(f"Matched {matched}/{len(master_rows)} MP(s) to the spending reports.")
 
     write_csv(os.path.join(get_output_dir("federal"), "mp_office_spending_by_quarter.csv"),
               quarter_csv_rows(quarter_rows), QUARTER_CSV_FIELDS)

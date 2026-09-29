@@ -164,7 +164,7 @@ class BudgetScriptTests(ScraperTestCase):
         notes = {r["Category"]: r["Scope / Notes"] for r in self.read_sheet(path, "Notes")}
         self.assertIn("as submitted", notes["Federal"])
         self.assertIn("2004 or later", notes["Federal"])
-        self.assertIn("Matched 1/6 federal politician(s)", self.output.getvalue())
+        self.assertIn("Matched 1/6 MP(s)", self.output.getvalue())
 
     def test_download_is_validated_and_retried(self):
         with open(self.make_zip(), "rb") as f:

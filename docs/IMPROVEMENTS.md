@@ -188,11 +188,13 @@ real APIs, so do this once on your machine):
 1. `python3 scrape_federal.py` should report 343 MPs, OpenParliament
    "enriched ~343/343 (N matched by riding …)" and House of Commons
    "committee data for ~343/343". If committees come back empty for
-   everyone, check one MP's `<url>/xml` in a browser.
+   everyone, check one MP's `<url>/xml` in a browser. (Since added: it
+   also reports the senators, about 95 of the Senate's 105 seats while
+   some are vacant.)
 2. `python3 scrape_local.py` should say "Downloading all
    representatives in bulk…" and finish in seconds.
 3. `python3 scrape_budget_federal.py` prints the real CSV header, then
-   "Matched X/343 federal politician(s)". Expect most sitting MPs to
+   "Matched X/343 MP(s)". Expect most sitting MPs to
    match. If the header has changed, the run stops and tells you which
    column name to add to `FIELD_CANDIDATES`.
 
@@ -201,7 +203,7 @@ real APIs, so do this once on your machine):
 - **Provincial/municipal contribution fetchers.** The extension points
   are ready, but each source must be verified against its real site
   first, which wasn't possible from here.
-- **Nunavut.** Represent has no set for it. A small dedicated scraper
-  for assembly.nu.ca could fill the gap.
+- ~~**Nunavut.**~~ Done since: `nunavut.py` reads assembly.nu.ca, and
+  `senate.py` adds the Senate, which Represent doesn't cover either.
 - **Scheduled runs / CI.** The test suite is ready to run in GitHub
   Actions on every push.

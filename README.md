@@ -1,12 +1,14 @@
 # canadian-politicians-data
 
-Scripts that pull public data on Canadian elected officials (federal MPs,
-provincial/territorial legislators, and municipal councillors and mayors)
-into Excel/CSV/JSON. They keep a running history in a master workbook,
-total up federal campaign contributions and MPs' office spending per
-politician, and draw maps of who represents each district.
+Scripts that pull public data on Canadian politicians (federal MPs and
+senators, provincial/territorial legislators, and municipal councillors
+and mayors) into Excel/CSV/JSON. They keep a running history in a
+master workbook, total up federal campaign contributions and MPs'
+office spending per politician, and draw maps of who represents each
+district.
 
-Data comes from free, public, no-key APIs and open data:
+Data comes from free, public APIs, open data and official websites, none
+of which need a key:
 
 - [Represent](https://represent.opennorth.ca/) (Open North) aggregates
   officials at every level of government, so these scripts don't need
@@ -14,6 +16,12 @@ Data comes from free, public, no-key APIs and open data:
   Commons, 12 of the 13 provincial/territorial legislatures (there is no
   Nunavut set) and 108 municipal councils, about 3,800 people in all,
   along with the boundaries of the districts they represent.
+- The [Senate of Canada](https://sencanada.ca/en/senators/) publishes
+  its list of senators and their office phone numbers and emails.
+  Represent only covers elected bodies, so senators come from here.
+- The [Legislative Assembly of Nunavut](https://www.assembly.nu.ca/members/mla)
+  publishes a page per MLA, which fills Represent's one missing
+  legislature.
 - [OpenParliament](https://openparliament.ca/api/) provides each MP's
   first elected date, profile link and voting record.
 - [House of Commons open data](https://www.ourcommons.ca/en/open-data)
@@ -47,9 +55,15 @@ written up in [docs/IMPROVEMENTS.md](docs/IMPROVEMENTS.md).
 - `openparliament_enrich.py`: adds first elected date and OpenParliament
   profile URL (from OpenParliament) and current committee memberships
   (from the House of Commons) to federal MPs.
-- `scrape_federal.py`: Members of Parliament (House of Commons).
-- `scrape_provincial_territorial.py`: MPPs/MLAs/MNAs/MHAs for every
-  provincial/territorial legislature Represent covers.
+- `senate.py`: reads the Senate's list of senators and their contact
+  details from sencanada.ca.
+- `nunavut.py`: reads Nunavut's MLAs from the Legislative Assembly of
+  Nunavut's website.
+- `scrape_federal.py`: Members of Parliament (House of Commons) and
+  senators.
+- `scrape_provincial_territorial.py`: MPPs/MLAs/MNAs/MHAs for all 13
+  provincial/territorial legislatures: the 12 Represent covers, plus
+  Nunavut's from its own website.
 - `scrape_local.py`: municipal councillors and mayors.
 - `scrape_all.py`: runs all three, one after another.
 - `lookup_politician.py`: look up one named politician on demand,
@@ -203,6 +217,9 @@ variable, to put it anywhere else.
     federal_mps.xlsx
     federal_mps.csv
     federal_mps.json
+    senators.xlsx                    <- the Senate, from scrape_federal.py
+    senators.csv
+    senators.json
     votes_45-1.xlsx                  <- from scrape_votes.py (45-1 = the session)
     votes_45-1_summary.csv
     votes_45-1_ballots.csv
@@ -217,6 +234,8 @@ variable, to put it anywhere else.
     ontario-legislature.csv
     quebec-assemblee-nationale.xlsx
     quebec-assemblee-nationale.csv
+    nunavut-legislature.xlsx         <- from assembly.nu.ca
+    nunavut-legislature.csv
     ...
   local/
     all_local.xlsx
@@ -247,7 +266,16 @@ jurisdiction publishes every field):
 | `constituency_phone`, `constituency_address` | the local office constituents actually contact. For MPs, `phone`/`postal_address` are the Ottawa office, which is the same for all 343 of them |
 | `roles`, `preferred_languages` | e.g. "Parliamentary Secretary to the Prime Minister"; MPs' official languages |
 | `extra_info` | anything else Represent publishes for the person, e.g. a constituency email |
-| `first_elected`, `committees`, `openparliament_url` | federal only (see [Notes](#notes--things-to-know)) |
+| `first_elected`, `committees`, `openparliament_url` | MPs only (see [Notes](#notes--things-to-know)) |
+
+Senators have no riding, so their `district_name` is the province or
+territory they represent, `party_name` is their Senate group or caucus
+(e.g. "Independent Senators Group", "Non-affiliated") and `extra_info`
+has their appointment date, mandatory retirement date and the prime
+minister on whose advice they were appointed. Nunavut has no parties
+(it has consensus government), so its MLAs' `party_name` is blank, as it
+is for the Northwest Territories; `roles` lists their duties (Premier,
+minister, Speaker...).
 
 New columns are added at the end, so existing column positions in the
 CSVs never move.
@@ -285,13 +313,18 @@ same name, then the same seat (district + office) and last name, each
 only when that's unambiguous. A council that starts publishing profile
 pages, a legislature website redesign, or a "Bill" becoming "William"
 is recorded as an update to the same person instead of everyone being
-"removed" and re-"added" with their history reset.
+"removed" and re-"added" with their history reset. (Nunavut's member
+pages belong to the seat and pass to the next MLA, so they aren't used
+for this: a new MLA for a seat is recorded as a new person.)
 
 The scrapers are careful about what counts as a removal:
 
 - With `--filter`/`--province`, only the councils actually scraped that
   run are checked for removals.
-- If a council fails to download, its people are left alone.
+- If a council fails to download, its people are left alone. The same
+  goes for the Senate and Nunavut: if their websites can't be read, or
+  not every Nunavut MLA's page could be, nobody there is marked
+  `removed`.
 - If a council downloads fine but comes back with nobody in it, that's
   treated as an upstream glitch rather than a mass resignation, and a
   warning is printed.
@@ -307,7 +340,7 @@ is kept as `master.backup.xlsx`.
 # Fast: searches your already-scraped master.xlsx
 python3 lookup_politician.py "Jane Doe"
 
-# Live: queries Represent directly, every level of government at once (a few requests)
+# Live: queries Represent (and the Senate) directly, every level of government at once (a few requests)
 python3 lookup_politician.py "Jane Doe" --live
 
 # Optionally narrow it
@@ -317,11 +350,16 @@ python3 lookup_politician.py "Jane Doe" --live --category local --place Toronto
 
 Names match on word prefixes in any order, ignoring accents and case.
 "Legault", "francois leg" and "LEGAULT François" all find François
-Legault; "Ann" finds Ann or Anne but not Joanne. Federal matches also
-get OpenParliament / House of Commons enrichment pulled live
-(committees, first elected date) and a short career summary from
-`scrape_careers.py` (years served, elections, offices), since that's
-cheap for a single person (`--no-enrich` skips it).
+Legault; "Ann" finds Ann or Anne but not Joanne. MPs also get
+OpenParliament / House of Commons enrichment pulled live (committees,
+first elected date) and a short career summary from `scrape_careers.py`
+(years served, elections, offices), since that's cheap for a single
+person (`--no-enrich` skips it).
+
+The live search covers senators too, but not Nunavut's MLAs: reading
+them takes a request per MLA, so find them in the cached search (after
+`scrape_provincial_territorial.py`), e.g.
+`lookup_politician.py "Main" --place Nunavut`.
 
 ### Who represents a postal code?
 
@@ -336,16 +374,23 @@ where there is one. Each entry has email, phone and local office. It
 takes one request to Represent, plus live committee data for the MP.
 Add `--category` to show just one level.
 
+Senators represent a whole province or territory, so the lookup also
+lists that province's senators, one line each with their email and
+phone. They come from your `master.xlsx` (run `scrape_federal.py`
+first), which keeps the lookup to one request. Represent has no
+boundaries for Nunavut's constituencies, so for a Nunavut address the
+lookup can't tell which MLA is yours and says so.
+
 A postal code can straddle a district boundary. When it does, every
 possible representative is listed and flagged "one of these, depending
 on the street address". Right-click the address in Google Maps to copy
 its coordinates, then use `--point` for the exact answer.
 
-This only pulls from Represent, OpenParliament and the House of
-Commons. All three publish these people's official, public-facing
-legislative contact info as part of their role as elected officials.
-It doesn't search social media, news coverage, or anything about a
-person's private life.
+This only pulls from Represent, OpenParliament, the House of Commons,
+the Senate and the Legislative Assembly of Nunavut. All of them publish
+these people's official, public-facing legislative contact info as part
+of their public role. It doesn't search social media, news coverage, or
+anything about a person's private life.
 
 ## Change reports: what changed, in plain English
 
@@ -370,7 +415,10 @@ A report groups each level of government's changes into:
 Each entry shows the before and after values and when the change was
 recorded. Photo and source-link updates are only counted. The very
 first run of each scraper is summarized ("first import of 343
-people") rather than listed. Reports are built from `master.xlsx`'s
+people") rather than listed, and so is a legislature or council's
+first appearance later on (the Senate the first time `scrape_federal.py`
+reads it, or a council Represent starts covering), so those people
+aren't reported as newly elected. Reports are built from `master.xlsx`'s
 Changelog, so they show what the scrapers saw: run the scrapers
 regularly (e.g. `scrape_all.py` daily) and a weekly digest will be
 complete. With the .exe files, two Windows Task Scheduler tasks do it:
@@ -520,6 +568,9 @@ are fetched at Represent's rate limit. Shapes are cached under
 change, and `--refresh` downloads them again. The people are always
 fetched fresh. Anyone Represent has no district shape
 for is listed on the map's side panel rather than silently left out.
+Senators aren't mapped, since each represents a whole province, and
+neither are Nunavut's MLAs: Represent has no boundaries for Nunavut's
+constituencies.
 
 ## Budget scripts: campaign funding and office spending
 
@@ -551,7 +602,10 @@ to compare/sort side by side: `name`, `category`, `party_name`,
 `total_contributions` (monetary), `non_monetary_contributions`
 (in-kind), `contribution_count`, `avg_contribution`, `date_range`,
 `electoral_districts`, `match_status`. Rows are matched against your
-existing `master.xlsx`, so run the politician scrapers first.
+existing `master.xlsx`, so run the politician scrapers first. (Senators
+are left out of the federal tabs: they're appointed, so they receive no
+campaign contributions, and they have no House of Commons office
+budget.)
 
 ### `scrape_budget_federal.py`
 
@@ -669,10 +723,17 @@ data source. Once a fetcher is added you can run just that one with
   with backoff, and a full scrape needs only a handful of requests
   anyway. If a source is unreachable altogether, the scripts give up
   after a few quick attempts and say so, instead of retrying for hours.
-- **Coverage:** Represent currently has no Nunavut legislature, and
-  `scrape_provincial_territorial.py` prints any jurisdiction it can't
-  find. It covers 108 municipal councils, mostly larger cities and
-  their regions.
+- **Coverage:** every federal and provincial/territorial seat. Represent
+  has no Nunavut legislature and no Senate, so `nunavut.py` reads
+  assembly.nu.ca (one request per MLA, about half a minute) and
+  `senate.py` reads sencanada.ca (two requests). If Represent ever adds
+  Nunavut, it's used instead. Locally, Represent covers 108 municipal
+  councils, mostly larger cities and their regions.
+- **The Senate's contact table** lags its list of senators: newly
+  appointed senators have no phone or email until the Senate adds them,
+  and senators who have retired are ignored. If the contact table can't
+  be read, the phone numbers and emails already in `master.xlsx` are
+  kept.
 - **Federal enrichment:** `scrape_federal.py` adds it by default; pass
   `--no-enrich` to skip it (faster, or if you don't have network access
   to openparliament.ca / ourcommons.ca). Committees come from the House
@@ -697,17 +758,20 @@ data source. Once a fetcher is added you can run just that one with
   that), but if Open North renames something unusually, it's worth
   spot-checking the output.
 - **Scope:** all data here is official, public contact/office
-  information published by Represent, OpenParliament and the House of
-  Commons as part of these people's public role as elected officials,
-  plus federal contribution totals published by Elections Canada and
-  MPs' office expenditures published by the House of Commons. It is not
-  personal information about their private lives.
+  information published by Represent, OpenParliament, the House of
+  Commons, the Senate and the Legislative Assembly of Nunavut as part of
+  these people's public role, plus federal contribution totals published
+  by Elections Canada and MPs' office expenditures published by the
+  House of Commons. It is not personal information about their private
+  lives.
 
 ## Development
 
 The tests use only the standard library (plus openpyxl), run offline in
 a few seconds, and use trimmed copies of real API responses in
-`tests/fixtures/`:
+`tests/fixtures/`. The Senate and Nunavut pages there are rebuilt from
+the live pages' content, since the sites couldn't be reached from where
+they were written; each says so at the top.
 
 ```bash
 python3 -m unittest discover -s tests -v

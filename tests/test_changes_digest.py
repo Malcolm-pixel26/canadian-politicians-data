@@ -123,7 +123,7 @@ class AfterRunTests(ScraperTestCase):
             sample_represent().install(web)
             scrape_federal.main(["--no-enrich"])
         out = self.output.getvalue()
-        self.assertIn("Federal (House of Commons): first import of 6 people", out)
+        self.assertIn("Federal (House of Commons and Senate): first import of 6 people", out)
         report = os.path.join(self.tmp, "changes", f"changes_{date.today().isoformat()}.html")
         self.assertIn(f"Today's change report: {report}", out)
         self.assertTrue(os.path.exists(report))

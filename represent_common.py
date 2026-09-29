@@ -8,7 +8,9 @@ one free API, so we don't need a separate scraper for every
 legislature's website. At the time of writing it publishes 121
 "representative sets" -- the House of Commons, 12 of the 13
 provincial/territorial legislatures (there is no Nunavut set) and 108
-municipal councils -- about 3,800 people in total.
+municipal councils -- about 3,800 people in total. The two gaps are
+filled from the institutions' own websites: the Senate by senate.py and
+Nunavut's MLAs by nunavut.py.
 
 Free tier limit: 60 requests/minute; past that Represent answers with
 HTTP 503. Every request in this project goes through http_get() below,
@@ -159,6 +161,11 @@ def http_get(url, accept="application/json", headers=None, timeout=60):
         time.sleep(delay)
 
 
+def http_get_html(url):
+    """http_get() for a web page, decoded to text."""
+    return http_get(url, accept="text/html").decode("utf-8", errors="replace")
+
+
 def http_get_json(url, headers=None):
     """http_get() + JSON decoding."""
     body = http_get(url, accept="application/json", headers=headers)
@@ -188,8 +195,17 @@ def explain_fetch_error(error):
 # restyles them doesn't break the parsers -- and a missing table is
 # reported instead of guessed at.
 
+class TableRow(list):
+    """One table row: its cells' text, plus `links` -- the href of every
+    link in the row, in order."""
+
+    def __init__(self, cells=(), links=()):
+        super().__init__(cells)
+        self.links = list(links)
+
+
 class _TableParser(HTMLParser):
-    """Collects every table's rows, each a list of its cells' text
+    """Collects every table's rows, each a TableRow of its cells' text
     (whatever tags are inside them)."""
 
     def __init__(self):
@@ -206,12 +222,16 @@ class _TableParser(HTMLParser):
             self._open_tables.append(table)
         elif tag == "tr" and self._open_tables:
             self._end_row()
-            self._row = []
+            self._row = TableRow()
         elif tag in ("td", "th") and self._row is not None:
             self._end_cell()
             self._cell = []
         elif tag == "br" and self._cell is not None:
             self._cell.append(" ")
+        elif tag == "a" and self._row is not None:
+            href = dict(attrs).get("href")
+            if href:
+                self._row.links.append(href.strip())
 
     def handle_endtag(self, tag):
         if tag in ("td", "th"):
@@ -240,7 +260,8 @@ class _TableParser(HTMLParser):
 
 def html_tables(page_text):
     """Every table on an HTML page, as a list of rows, each a list of its
-    cells' text with runs of whitespace collapsed."""
+    cells' text with runs of whitespace collapsed (a TableRow, so the
+    row's link targets are there too, as `row.links`)."""
     parser = _TableParser()
     parser.feed(page_text)
     parser.close()
@@ -408,6 +429,21 @@ PROVINCES_AND_TERRITORIES = {
     "YT": "Yukon",
 }
 
+_PROVINCE_CODES_BY_NAME = {name.lower(): code for code, name in PROVINCES_AND_TERRITORIES.items()}
+_PROVINCE_CODES_BY_NAME.update({"québec": "QC", "yukon territory": "YT"})
+
+
+def province_code(text):
+    """"Manitoba" -> "MB". Also reads names with more after them
+    ("Quebec - De Lorimier", "Ontario (Toronto)"); "" if there's no
+    province or territory name at the start."""
+    text = " ".join(str(text or "").split()).lower()
+    for name in sorted(_PROVINCE_CODES_BY_NAME, key=len, reverse=True):
+        if text == name or (text.startswith(name) and not text[len(name)].isalpha()):
+            return _PROVINCE_CODES_BY_NAME[name]
+    return ""
+
+
 # Statistics Canada province/territory codes: the first two digits of
 # every federal electoral district (and census subdivision) code.
 SGC_PROVINCE_CODES = {
@@ -441,6 +477,13 @@ def province_for_representative(rep):
     boundary_url = (rep.get("related") or {}).get("boundary_url") or ""
     match = re.search(r"/(\d{5})/?$", boundary_url)
     return SGC_PROVINCE_CODES.get(match.group(1)[:2], "") if match else ""
+
+
+def in_house_of_commons(row):
+    """True for an MP. The Federal tab of master.xlsx also holds senators
+    (representative set "Senate of Canada"), who have no riding and no
+    House of Commons data."""
+    return classify_set({"name": row.get("representative_set")}) == "federal"
 
 
 # --- Fetching data from Represent -------------------------------------------
@@ -686,6 +729,20 @@ FEDERAL_FIELDS = CSV_FIELDS + FEDERAL_ENRICHMENT_FIELDS
 # blank" (record it) from "wasn't looked up this run" (keep the old value).
 # Keys starting with "_" are never written to any output file.
 FRESH_FIELDS_KEY = "_fresh_fields"
+
+
+_PHONE_RE = re.compile(r"(?<!\d)(?:\+?1[\s.-]*)?\(?(\d{3})\)?[\s.-]*(\d{3})[\s.-]*(\d{4})(?!\d)")
+
+
+def format_phone(text):
+    """A North American number the way Represent writes them:
+    "(867) 975-5050" and "613-943-4619" -> "1 867 975-5050", "1 613 943-4619".
+    Anything else is returned trimmed, as found."""
+    text = " ".join(str(text or "").split())
+    match = _PHONE_RE.search(text)
+    if not match or text[:match.start()].strip() or text[match.end():].strip():
+        return text
+    return "1 {} {}-{}".format(*match.groups())
 
 
 def _value(obj, key):
@@ -1041,6 +1098,10 @@ def write_workbook(path, sheets):
 # unambiguous on both sides. (The last rule is what lets "Bill Dennis"
 # becoming "William Dennis" stay one person; the rare flip side is that a
 # *different* Dennis winning that same seat shows up as a name change.)
+# The URL rule is skipped for legislatures whose member pages belong to
+# the seat, not the person (SEAT_PAGE_SETS): there, whoever wins the
+# seat next inherits the page, and would otherwise be recorded as the
+# previous member changing their name.
 #
 # Columns are read by their header text, not position, so workbooks written
 # by older versions (with fewer columns) load correctly, and columns a new
@@ -1160,6 +1221,12 @@ def _text(value):
     return "" if value is None else str(value)
 
 
+# Legislatures (normalize_name() form) whose member pages are per seat:
+# assembly.nu.ca/node/9695 was Pamela Gross's page until the 2025
+# election and is now Fred Pedersen's -- both MLAs for Cambridge Bay.
+SEAT_PAGE_SETS = {"legislative assembly of nunavut"}
+
+
 def _identity_keys(row):
     """Ways to recognise the same person across runs, most specific first
     (see the Identity note above). None where the row lacks the data."""
@@ -1170,7 +1237,7 @@ def _identity_keys(row):
     district = normalize_name(_text(row.get("district_name")))
     office = normalize_name(_text(row.get("elected_office")))
     return [
-        (set_name, url) if url else None,
+        (set_name, url) if url and set_name not in SEAT_PAGE_SETS else None,
         (set_name, name) if name else None,
         (set_name, district, office, last) if district and last else None,
     ]
