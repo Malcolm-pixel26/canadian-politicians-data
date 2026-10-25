@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'self'; form-action 'self'"
+    />
+    <meta
+      name="description"
+      content="Explore Canadian representatives, find their official profiles, and save a personal watchlist."
+    />
+    <meta name="theme-color" content="#193c34" />
+    <title>Civic Circle · Canadian representatives</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <a class="skip" href="#content">Skip to content</a>
+    <div class="shell">
+      <aside>
+        <a class="brand" href="./"><span>c.</span>Civic Circle</a>
+        <p class="eyebrow">CANADA, A LITTLE CLOSER</p>
+        <nav aria-label="Main navigation">
+          <button data-view="overview">Overview</button
+          ><button data-view="directory">Representatives</button
+          ><button data-view="saved">
+            My watchlist <span id="saved-count">0</span></button
+          ><button data-view="map">District map</button>
+        </nav>
+        <div class="aside-note">
+          <p>Public information.<br />Personal perspective.</p>
+          <small
+            >No account required.<br />Your watchlist stays in this
+            browser.</small
+          >
+        </div>
+        <a
+          class="repo-link"
+          href="https://github.com/Malcolm-pixel26/canadian-politicians-data"
+          >Source on GitHub →</a
+        >
+      </aside>
+      <main id="content" tabindex="-1">
+        <header>
+          <span>CANADA / CIVIC CIRCLE</span
+          ><span class="public-badge">Open to everyone</span>
+        </header>
+        <div id="notice" class="notice" role="status" hidden></div>
+        <div id="error" class="error" role="alert" hidden></div>
+        <div id="loading" class="empty" role="status">
+          Loading the public directory…
+        </div>
+        <section id="overview" hidden>
+          <div class="hero">
+            <p class="eyebrow">A LITTLE CONTEXT GOES A LONG WAY</p>
+            <h1>Your country.<br /><em>A closer connection.</em></h1>
+            <p>
+              Explore the people representing Canada.<br />Find official sources
+              and keep your own shortlist.
+            </p>
+            <button class="primary" data-view="directory">
+              Meet your representatives →
+            </button>
+            <div class="hero-mark" aria-hidden="true"><svg viewBox="0 0 200 200" focusable="false"><circle cx="100" cy="100" r="78" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="100" cy="100" r="5" fill="currentColor"/><path d="M100 26 L116 84 L174 100 L116 116 L100 174 L84 116 L26 100 L84 84 Z" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></div>
+          </div>
+          <div id="stats" class="stats"></div>
+          <div class="two-col">
+            <section class="panel">
+              <h2>Start close to home</h2>
+              <p class="muted">
+                Browse the provinces and territories in this dataset.
+              </p>
+              <div id="regions" class="regions"></div>
+            </section>
+            <section class="panel">
+              <h2>Know what you’re looking at</h2>
+              <div id="coverage"></div>
+              <h3>A watchlist of your own</h3>
+              <p>
+                Save representatives to follow. Your choices are stored only in
+                this browser, never in the public dataset.
+              </p>
+              <h3>Go to the source</h3>
+              <p>
+                This is an independent directory, not a government service.
+                Profiles link to original sources so you can verify important
+                details.
+              </p>
+              <p class="muted">
+                Financial records and voting histories are not included in this
+                edition. Missing information does not mean zero activity.
+              </p>
+            </section>
+          </div>
+        </section>
+        <section id="directory" hidden>
+          <div class="title">
+            <p class="eyebrow">PEOPLE IN PUBLIC SERVICE</p>
+            <h1 id="directory-title">Meet your representatives</h1>
+            <p id="directory-description" class="muted"></p>
+          </div>
+          <form id="filters" class="filters" role="search">
+            <label class="search"
+              >Search<input
+                id="query"
+                name="q"
+                type="search"
+                placeholder="Name, riding, or legislature…"
+                maxlength="200"
+            /></label>
+            <label
+              >Government level<select id="category" name="category">
+                <option value="">All levels</option>
+                <option value="federal">Federal</option>
+                <option value="provincial_territorial">
+                  Provincial & territorial
+                </option>
+                <option value="local">Local</option>
+              </select></label
+            >
+            <label
+              >Province / territory<select id="province" name="province">
+                <option value="">All regions</option>
+              </select></label
+            >
+            <label
+              >Party<select id="party" name="party">
+                <option value="">All parties</option>
+              </select></label
+            >
+            <label
+              >Record status<select id="status" name="status">
+                <option value="active">Active records</option>
+                <option value="all">All records</option>
+                <option value="removed">No longer listed</option>
+              </select></label
+            >
+            <button class="primary" type="submit">Search</button
+            ><button id="reset" type="button">Reset</button>
+          </form>
+          <p id="result-count" class="muted" role="status"></p>
+          <div id="cards" class="cards"></div>
+          <div id="empty" class="empty" hidden>
+            <h2>No matching representatives</h2>
+            <p>
+              Try a broader search, or save someone from the directory to start
+              your watchlist.
+            </p>
+          </div>
+          <div id="pagination" class="pagination">
+            <button id="previous">Previous</button><span id="page-label"></span
+            ><button id="next">Next</button>
+          </div>
+        </section>
+        <section id="map" hidden>
+          <div class="title">
+            <p class="eyebrow">A SENSE OF PLACE</p>
+            <h1>Across the country</h1>
+            <p class="muted">
+              Select a district to find its representatives. These are electoral
+              boundaries, not a basemap.
+            </p>
+          </div>
+          <div class="map-tools">
+            <button id="zoom-in" aria-label="Zoom in">+</button
+            ><button id="zoom-out" aria-label="Zoom out">−</button
+            ><button id="reset-map">Reset map</button>
+          </div>
+          <div class="map-wrap">
+            <svg
+              id="district-map"
+              viewBox="0 0 900 480"
+              role="group"
+              aria-label="District boundaries. Use arrow keys to pan and plus or minus to zoom."
+              tabindex="0"
+            ></svg>
+            <p id="map-status" class="map-status" role="status"></p>
+          </div>
+          <p class="muted">
+            Keyboard: focus a district and press Enter. On the map, arrow keys
+            pan and +/− zoom. The directory is an accessible text alternative.
+          </p>
+        </section>
+        <footer>
+          <span>Civic Circle</span
+          ><span id="freshness">Source freshness varies by jurisdiction.</span>
+        </footer>
+      </main>
+    </div>
+    <dialog id="profile" aria-labelledby="profile-name">
+      <div class="dialog-heading">
+        <span class="eyebrow">REPRESENTATIVE PROFILE</span
+        ><button id="close-profile" aria-label="Close profile">×</button>
+      </div>
+      <h1 id="profile-name"></h1>
+      <p id="profile-office"></p>
+      <button id="profile-save" class="primary"></button>
+      <p id="profile-status" class="notice" hidden></p>
+      <dl id="profile-details"></dl>
+      <div id="profile-source"></div>
+      <label class="share-label"
+        >Share this public profile<input id="profile-link" readonly /></label
+      ><button id="copy-link">Copy link</button>
+      <p id="copy-status" class="muted" role="status"></p>
+      <p class="source-note">
+        Official public-role information only. Check the original source before
+        relying on contact or office details.
+      </p>
+    </dialog>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

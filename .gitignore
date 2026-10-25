@@ -8,3 +8,6 @@ dist/
 
 # Output, if --output-dir points inside the repo
 output/
+
+# Generated public website artifacts
+public-dist/

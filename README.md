@@ -1,5 +1,9 @@
 # canadian-politicians-data
 
+## Public web app
+
+[Civic Circle](public_site/README.md) turns the collected data into a public website for GitHub Pages: searchable representatives, shareable profiles, a district map, and browser-local watchlists. See the [public-launch decision graph](docs/PUBLIC_LAUNCH_DECISIONS.md) and the setup guide for publication steps.
+
 Scripts that pull public data on Canadian politicians (federal MPs and
 senators, provincial/territorial legislators, and municipal councillors
 and mayors) into Excel/CSV/JSON. They keep a running history in a

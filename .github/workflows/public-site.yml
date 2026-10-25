@@ -1,0 +1,67 @@
+name: Civic Circle public website
+on:
+  pull_request:
+    paths:
+      - "public_site/**"
+      - ".github/workflows/public-site.yml"
+  push:
+    branches: [main]
+    paths:
+      - "public_site/**"
+      - ".github/workflows/public-site.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-site-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: pip install openpyxl playwright
+      - run: python -m playwright install --with-deps chromium
+      - run: python -m unittest public_site.test_build -v
+      - run: node --check public_site/app.js
+      - run: python -m public_site.browser_smoke
+  build:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install openpyxl
+      - name: Collect federal public records
+        run: python scrape_federal.py --no-enrich --output-dir /tmp/civic-source
+      - name: Collect federal district boundaries
+        run: python make_maps.py --level federal --output-dir /tmp/civic-source
+      - name: Build validated public bundle
+        run: python -m public_site.build --master /tmp/civic-source/master.xlsx --map /tmp/civic-source/maps/federal_map.geojson --output public-dist --require-set 'House of Commons' --require-set 'Senate of Canada'
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public-dist
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Publish website
+        id: deployment
+        uses: actions/deploy-pages@v4
